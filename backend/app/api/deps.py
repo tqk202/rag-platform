@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import PermissionDeniedError, UnauthorizedError
+from app.core.ratelimit import RateLimitExceeded, rate_limiter
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import Role, User
@@ -32,6 +33,16 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def check_rate_limit(user: CurrentUser) -> None:
+    """LLM 接口依赖：按用户限流，超限抛 429（带 Retry-After）。
+
+    放在 CurrentUser 之后执行：先鉴权，再限流——未登录请求根本到不了这里。
+    """
+    allowed, retry_after = await rate_limiter.allow(str(user.id))
+    if not allowed:
+        raise RateLimitExceeded(retry_after)
 
 
 def require_role(*roles: Role):

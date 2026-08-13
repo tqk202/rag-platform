@@ -1,8 +1,13 @@
 """切片表：文档切分后的最小检索单元，vector_id 指向 Milvus 向量。"""
+from typing import TYPE_CHECKING
+
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.document import Document
 
 
 class Chunk(Base, TimestampMixin):

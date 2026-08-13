@@ -1,6 +1,10 @@
 """统一业务异常：路由层抛 AppError，由全局 handler 转成统一 JSON 结构。"""
+import math
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+from app.core.ratelimit import RateLimitExceeded
 
 
 class AppError(Exception):
@@ -35,4 +39,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.message, "code": exc.code},
+        )
+
+    @app.exception_handler(RateLimitExceeded)
+    async def _rate_limit_handler(_: Request, exc: RateLimitExceeded) -> JSONResponse:
+        # 429 按 HTTP 规范必须带 Retry-After，告诉客户端等多久再重试
+        return JSONResponse(
+            status_code=429,
+            content={"detail": str(exc), "code": "RATE_LIMITED"},
+            headers={"Retry-After": str(math.ceil(exc.retry_after))},
         )

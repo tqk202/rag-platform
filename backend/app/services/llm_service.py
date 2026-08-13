@@ -46,7 +46,7 @@ class LLMProvider:
 class MockLLMProvider(LLMProvider):
     def _overlap(self, question: str, content: str) -> float:
         """问题中出现在切片里的字符占比，0~1。简化的"相关性"代理。"""
-        q_chars = set(ch for ch in question if not ch.isspace())
+        q_chars = {ch for ch in question if not ch.isspace()}
         if not q_chars:
             return 0.0
         hits = sum(1 for ch in q_chars if ch in content)

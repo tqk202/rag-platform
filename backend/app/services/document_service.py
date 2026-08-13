@@ -1,4 +1,5 @@
 """文档生命周期服务：上传（去重）/ 列表（按部门隔离）/ 删除（连向量一起清）。"""
+import logging
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -14,6 +15,7 @@ from app.schemas.document import DocumentOut, UploadResponse
 from app.services.ingestion_service import compute_content_hash
 from app.services.vector_service import vector_store
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 UPLOAD_DIR = Path("data/uploads")
@@ -73,6 +75,7 @@ async def upload_document(
             await process_document(db, doc.id)
             return UploadResponse(document_id=doc.id, message="上传成功，处理完成")
         except Exception:
+            logger.exception("文档 %s 处理失败", doc.id)
             return UploadResponse(document_id=doc.id, message="上传成功，但处理失败")
 
     from app.tasks.process_document import process_document_task
@@ -80,7 +83,8 @@ async def upload_document(
     try:
         process_document_task.delay(doc.id)
     except Exception:
-        pass  # broker 未就绪时保持 pending，不影响上传
+        # broker 未就绪时保持 pending，不影响上传；但必须留痕，方便排查
+        logger.warning("投递处理任务失败（broker 未就绪？）doc_id=%s", doc.id)
 
     return UploadResponse(document_id=doc.id, message="上传成功，正在处理")
 

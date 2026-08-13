@@ -1,0 +1,25 @@
+# ruff 静态检查配置（CI 用）。规则从简，挡明显的错，不跟风格较劲。
+line-length = 120
+target-version = "py312"
+
+[lint]
+# 规则选择：
+#   F    pyflakes（未定义名/未用导入等真错误）
+#   E4   import 位置（含 E402，run_eval.py 里"先设环境变量再 import"的写法靠它约束）
+#   E7/E9 语法/运行时类问题
+#   I    import 排序（isort 规则，自动修复）
+#   UP   py3.12 现代化写法
+#   C4   C401 等集合/推导式简化
+#   PL   pylint 子集（PLR0402 别名导入等）
+#   RUF  ruff 专属（RUF100 帮我们清理多余的 noqa）
+# 刻意不选 B/S：B008 是 FastAPI 的 File()/Query() 惯用法，BLE001/S110 在
+# "上传不能被处理失败阻断"这类场景是刻意的，交给代码注释说明而非规则纠结。
+select = ["E4", "E7", "E9", "F", "I", "UP", "C4", "PL", "RUF"]
+
+# 与中文代码 / 本项目刻意的写法天然冲突的规则：
+#   RUF001/2/3 全角标点"歧义"检查——docstring/注释全是中文，全角：，（）是正常书写
+#   PLR2004 魔法数字——测试断言 HTTP 状态码 200/403/429 语义明确，不是魔法数字
+#   PLC0415 惰性 import——main/lifespan、vector_service 等为了绕循环依赖 / 延迟加载重依赖刻意为之
+#   PLR0913/0917 参数个数——evaluate_case 等函数参数语义独立，拆 dataclass 反而绕
+#   UP042/UP046 纯风格偏好（StrEnum / PEP695 泛型），动 W1 运行时类定义零收益，等真实需求再迁
+ignore = ["RUF001", "RUF002", "RUF003", "PLR2004", "PLC0415", "PLR0913", "PLR0917", "UP042", "UP046"]

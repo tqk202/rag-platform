@@ -1,10 +1,14 @@
 """文档表：文档生命周期 + 版本管理 + 部门权限归属。"""
 import enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.chunk import Chunk
 
 
 class DocStatus(str, enum.Enum):

@@ -46,11 +46,11 @@ logger = logging.getLogger("eval")
 from sqlalchemy import select  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
-from app.db.session import engine, AsyncSessionLocal  # noqa: E402
+from app.db.session import AsyncSessionLocal, engine  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.document import DocStatus, Document  # noqa: E402
 from app.models.user import User  # noqa: E402
-from app.services import retrieval_service, rerank_service  # noqa: E402
+from app.services import rerank_service, retrieval_service  # noqa: E402
 from app.services.evaluator import LLMJudge, evaluate_case  # noqa: E402
 from app.services.ingestion_service import compute_content_hash, process_document  # noqa: E402
 from app.services.llm_service import NO_ANSWER_SENTINEL, get_llm_provider  # noqa: E402

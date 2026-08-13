@@ -76,6 +76,27 @@ cd backend
 - **消融实验**：每个配置跑在独立子进程里控制变量，对比「纯向量 vs 混合」「有重排 vs 无重排」「chunk 500 vs 300」。
 - 评测用**独立库**（`data/eval_rag.db` + `data/eval_milvus.db`），不污染开发数据。报告输出到 `backend/eval_reports/`。
 
+## 工程规范（W5）
+
+线上坏回答怎么定位、花钱的接口怎么防刷、代码质量怎么守门：
+
+- **可观测性**：纯 ASGI 中间件给每个请求发 `request_id`（响应头 `X-Request-ID` 回传），
+  通过 contextvars + `setLogRecordFactory` 让整条链的日志都带 rid——
+  拿一个坏回答的 id 就能把这条链（鉴权→检索→LLM→响应）捞出来。SSE 流式不受影响。
+- **限流**：手写令牌桶（token bucket）保护 `/chat`（每次都是真实 LLM 调用）。
+  每用户独立桶，超限返回 `429` + `Retry-After`。生产可换 Redis 分布式限流。
+- **CI**：`.github/workflows/ci.yml`，push/PR 自动跑 `pytest` + `ruff`。
+  测试用独立库（SQLite + Milvus Lite），无需外部服务，runner 直接能跑。
+- **静态检查**：`backend/ruff.toml`，规则刻意挑过并注释了为什么（中文全角标点、
+  HTTP 状态码、惰性 import 等合理的写法都显式放行）。
+
+```bash
+# 本地跑一遍 CI 会做的事
+cd backend
+.venv\Scripts\python -m pytest -q
+.venv\Scripts\python -m ruff check app scripts tests
+```
+
 ## 目录结构
 
 ```
@@ -104,5 +125,5 @@ cd backend
 - [x] W2.5c Rerank 重排：召回(20)→重排→取前5→生成三层管线（RerankerProvider 接口抽象 + 轻量词法实现，可升级 bge-reranker）
 - [x] W3 多租户权限：RBAC 角色门卫 + 检索层元数据过滤 + 越权测试（含删除清向量）
 - [x] W4 评测体系：黄金评测集（18 题）+ RAGAS 风格四指标 + 消融实验（纯向量/混合/重排/chunk 大小）
-- [ ] W5 工程规范：测试 / CI / 可观测 / 限流
+- [x] W5 工程规范：request_id 全链路追踪 + 令牌桶限流 + GitHub Actions CI
 - [ ] W6 边界打磨与作品化：README 作品化

@@ -7,17 +7,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
+from app.core.observability import RequestIDMiddleware, install_request_id_logging
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # 让 app.* 的 INFO 日志可见（uvicorn 默认只显示它自己的 logger）。
-# 这是可观测性的最小配置；W5 会升级为结构化日志 / 全链路 trace。
+# 结构化为每条日志带 [rid=...]，配合 request_id 中间件做全链路追踪（W5）。
 if not logging.getLogger().handlers:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        format="%(asctime)s %(levelname)s %(name)s [rid=%(rid)s] %(message)s",
     )
+install_request_id_logging()
 
 
 @asynccontextmanager
@@ -49,6 +51,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 后加的中间件在外层先执行：request_id 在 CORS 之前分配，访问日志覆盖所有请求
+app.add_middleware(RequestIDMiddleware)
 
 register_exception_handlers(app)
 

@@ -1,5 +1,5 @@
 """密码哈希 + JWT：认证是后端岗的必考题，安全细节在这里集中管理。"""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
@@ -20,7 +20,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
+    expire = datetime.now(UTC) + timedelta(
         minutes=expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
     payload: dict[str, Any] = {"sub": subject, "exp": expire}

@@ -2,10 +2,10 @@
 import json
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, check_rate_limit
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services import rag_service
 
@@ -19,12 +19,18 @@ async def chat(
     db: DbSession,
     user: CurrentUser,
     data: ChatRequest,
+    _rl: None = Depends(check_rate_limit),
 ) -> ChatResponse:
     return await rag_service.answer(db, user, data)
 
 
 @router.post("/stream", summary="问答（流式 SSE）")
-async def chat_stream(db: DbSession, user: CurrentUser, data: ChatRequest):
+async def chat_stream(
+    db: DbSession,
+    user: CurrentUser,
+    data: ChatRequest,
+    _rl: None = Depends(check_rate_limit),
+):
     async def event_stream():
         try:
             async for event, payload in rag_service.stream_answer(db, user, data):
