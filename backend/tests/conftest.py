@@ -15,7 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from app.db.session import engine
 from app.main import app
 from app.models import Base
-from app.services.vector_service import vector_store
+from app.services.vector_service import COLLECTION_NAME, vector_store
 
 
 @pytest.fixture(autouse=True)
@@ -24,11 +24,8 @@ async def _reset_state():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    try:
-        if vector_store.client.has_collection(vector_store.COLLECTION_NAME):
-            vector_store.client.drop_collection(vector_store.COLLECTION_NAME)
-    except Exception:
-        pass
+    if vector_store.client.has_collection(COLLECTION_NAME):
+        vector_store.client.drop_collection(COLLECTION_NAME)
     yield
 
 

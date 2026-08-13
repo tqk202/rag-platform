@@ -61,6 +61,21 @@ uvicorn app.main:app --reload
 > `VECTOR_URI`（Milvus 本地文件 / http 地址）、`INGESTION_MODE`（inline / async）。
 > 这是真实项目常见的"开发/生产配置分离"。
 
+## 评测体系（W4）
+
+回答质量用数字说话，不靠感觉：
+
+```bash
+cd backend
+.venv\Scripts\python scripts/ablation.py        # mock 模式（免费，验证流程 + 检索侧相对对比）
+.venv\Scripts\python scripts/ablation.py api    # 真实 LLM 裁判（花少量 API 费用，出真实指标）
+```
+
+- **黄金评测集**：`backend/eval_data/golden_set.json`，18 道「问题 + 标准答案出处」，基于演示文档手写。
+- **四个指标**：`context_precision` / `context_recall`（检索质量，用黄金答案出处算）+ `faithfulness` / `answer_relevancy`（生成质量，LLM 当裁判）。手写 RAGAS 风格实现，便于讲清原理。
+- **消融实验**：每个配置跑在独立子进程里控制变量，对比「纯向量 vs 混合」「有重排 vs 无重排」「chunk 500 vs 300」。
+- 评测用**独立库**（`data/eval_rag.db` + `data/eval_milvus.db`），不污染开发数据。报告输出到 `backend/eval_reports/`。
+
 ## 目录结构
 
 ```
@@ -88,6 +103,6 @@ uvicorn app.main:app --reload
 - [x] W2.5b 流式输出：SSE 逐字推送（meta/delta/done 事件）+ 前端打字机效果
 - [x] W2.5c Rerank 重排：召回(20)→重排→取前5→生成三层管线（RerankerProvider 接口抽象 + 轻量词法实现，可升级 bge-reranker）
 - [x] W3 多租户权限：RBAC 角色门卫 + 检索层元数据过滤 + 越权测试（含删除清向量）
-- [ ] W4 评测体系：黄金评测集 + RAGAS + 消融实验
+- [x] W4 评测体系：黄金评测集（18 题）+ RAGAS 风格四指标 + 消融实验（纯向量/混合/重排/chunk 大小）
 - [ ] W5 工程规范：测试 / CI / 可观测 / 限流
 - [ ] W6 边界打磨与作品化：README 作品化

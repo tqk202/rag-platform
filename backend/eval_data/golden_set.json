@@ -1,0 +1,136 @@
+{
+  "meta": {
+    "name": "rag-platform 黄金评测集",
+    "description": "基于 backend/demo_docs 下 5 份 hr 部门管理制度手写。golden_passage 必须能从对应文档文本中逐字命中，评测器用它定位「标准答案切片」来算 context_precision / context_recall。",
+    "department": "hr",
+    "created": "2026-08-13"
+  },
+  "cases": [
+    {
+      "id": "annual-01",
+      "doc": "年假与休假管理制度.txt",
+      "question": "入职满一年的员工每年有多少天带薪年假？",
+      "golden_passage": "累计工作满一年不满十年的，年假五天",
+      "expect": "五天"
+    },
+    {
+      "id": "annual-02",
+      "doc": "年假与休假管理制度.txt",
+      "question": "员工离职时，未休的年假怎么补偿？",
+      "golden_passage": "员工离职时，未休年假按日工资的三倍折算补偿，随最后一个月工资发放",
+      "expect": "按日工资三倍折算补偿"
+    },
+    {
+      "id": "annual-03",
+      "doc": "年假与休假管理制度.txt",
+      "question": "未休完的年假可以顺延到什么时候使用？",
+      "golden_passage": "未休完的年假可顺延至次年三月三十一日前使用",
+      "expect": "次年三月三十一日前"
+    },
+    {
+      "id": "annual-04",
+      "doc": "年假与休假管理制度.txt",
+      "question": "休年假需要提前几天提交申请？",
+      "golden_passage": "员工休年假须提前三个工作日提交申请",
+      "expect": "三个工作日"
+    },
+    {
+      "id": "expense-01",
+      "doc": "费用报销管理制度.txt",
+      "question": "报销单提交后需要经过哪些人审批？",
+      "golden_passage": "报销单提交后由部门主管审批，再经财务部门复核，全部通过后进入打款流程",
+      "expect": "部门主管审批、财务部门复核"
+    },
+    {
+      "id": "expense-02",
+      "doc": "费用报销管理制度.txt",
+      "question": "报销款审批完成后多久到账？",
+      "golden_passage": "报销款项在审批完成后五个工作日内发放到员工工资卡",
+      "expect": "五个工作日"
+    },
+    {
+      "id": "expense-03",
+      "doc": "费用报销管理制度.txt",
+      "question": "单笔报销金额超过多少需要附发票原件？",
+      "golden_passage": "单笔金额超过两千元的报销，须附发票原件供财务查验",
+      "expect": "两千元"
+    },
+    {
+      "id": "expense-04",
+      "doc": "费用报销管理制度.txt",
+      "question": "业务招待费每人每次的报销上限是多少？",
+      "golden_passage": "招待标准为每人每次不超过三百元",
+      "expect": "三百元"
+    },
+    {
+      "id": "attendance-01",
+      "doc": "员工考勤与加班管理制度.txt",
+      "question": "工作日加班的加班费怎么计算？",
+      "golden_passage": "工作日加班按平时工资的1.5倍计算",
+      "expect": "平时工资的 1.5 倍"
+    },
+    {
+      "id": "attendance-02",
+      "doc": "员工考勤与加班管理制度.txt",
+      "question": "加班的调休需要在多长时间内用完？",
+      "golden_passage": "调休须在加班发生后六个月内使用完毕",
+      "expect": "六个月"
+    },
+    {
+      "id": "attendance-03",
+      "doc": "员工考勤与加班管理制度.txt",
+      "question": "员工忘打卡每月可以补卡几次？",
+      "golden_passage": "忘打卡的每月可补卡两次",
+      "expect": "两次"
+    },
+    {
+      "id": "attendance-04",
+      "doc": "员工考勤与加班管理制度.txt",
+      "question": "公司标准工作时间是几点到几点？",
+      "golden_passage": "标准工作时间为每周一到周五的早上九点到下午六点，中午休息一小时",
+      "expect": "早九点到下午六点，午休一小时"
+    },
+    {
+      "id": "travel-01",
+      "doc": "差旅与住宿标准.txt",
+      "question": "一线城市出差住宿标准是每晚多少钱？",
+      "golden_passage": "一线城市每晚不超过六百元",
+      "expect": "不超过六百元"
+    },
+    {
+      "id": "travel-02",
+      "doc": "差旅与住宿标准.txt",
+      "question": "出差补贴在一线城市每天多少？",
+      "golden_passage": "一线城市每天一百二十元",
+      "expect": "一百二十元"
+    },
+    {
+      "id": "travel-03",
+      "doc": "差旅与住宿标准.txt",
+      "question": "自驾出差的油费按什么标准报销？",
+      "golden_passage": "自驾出差的，按每公里一块五的标准报销油费",
+      "expect": "每公里一块五"
+    },
+    {
+      "id": "training-01",
+      "doc": "培训与职业发展制度.txt",
+      "question": "公司每年为员工提供多少学时的培训？",
+      "golden_passage": "公司为每位员工提供每年不少于四十学时的培训机会",
+      "expect": "不少于四十学时"
+    },
+    {
+      "id": "training-02",
+      "doc": "培训与职业发展制度.txt",
+      "question": "员工考取职业资格证书的费用由谁承担？",
+      "golden_passage": "员工参加与岗位相关的职业资格证书考试，通过后公司报销考试费用",
+      "expect": "公司报销考试费用"
+    },
+    {
+      "id": "training-03",
+      "doc": "培训与职业发展制度.txt",
+      "question": "公司有哪两条晋升通道？",
+      "golden_passage": "公司实行管理序列和专业序列双通道晋升",
+      "expect": "管理序列和专业序列"
+    }
+  ]
+}

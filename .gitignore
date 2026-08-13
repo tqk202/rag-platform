@@ -31,3 +31,6 @@ Thumbs.db
 logs/
 *.log
 data/
+
+# 评测中间产物（每次 run_*.json；消融对比表 ablation_report.md 要入库）
+**/eval_reports/*.json
