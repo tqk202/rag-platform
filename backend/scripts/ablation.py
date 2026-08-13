@@ -103,7 +103,9 @@ def main() -> None:
         "数字只用来验证评测流程能跑通、以及检索侧的相对对比（纯向量 < 混合、无重排 < 有重排）。"
         "真实的 embedding（bge-m3）+ LLM 裁判跑出来的绝对指标，需在切换生产模式后重跑本实验。"
         if LLM == "mock"
-        else "> 本次为 **真实模式**：bge-m3 类嵌入 + 真实 LLM 裁判，指标可直接用于调参决策。"
+        else "> 本次为 **真实模式**：LLM 裁判为真实 DeepSeek，faithfulness / answer_relevancy 是真实指标，可直接用于调参。"
+        "检索侧嵌入仍为 mock（哈希占位、无语义），context_precision / context_recall 只体现检索配置的相对差异，"
+        "绝对检索指标需在切换生产模式换 bge-m3 后重跑。"
     )
     out_path.write_text(
         f"# W4 消融实验报告（LLM 裁判: `{LLM}`，{len(reports[0]['per_case'])} 题黄金评测集）\n\n{note}\n\n{md}\n",
