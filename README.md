@@ -87,7 +87,7 @@ uvicorn app.main:app --reload
 - [x] W2.5a 真实 LLM 接入：OpenAI 兼容客户端（DeepSeek），提炼式回答 + 引文 + no_answer 哨兵句
 - [x] W2.5b 流式输出：SSE 逐字推送（meta/delta/done 事件）+ 前端打字机效果
 - [x] W2.5c Rerank 重排：召回(20)→重排→取前5→生成三层管线（RerankerProvider 接口抽象 + 轻量词法实现，可升级 bge-reranker）
-- [ ] W3 多租户权限：RBAC + 元数据过滤 + 越权测试
+- [x] W3 多租户权限：RBAC 角色门卫 + 检索层元数据过滤 + 越权测试（含删除清向量）
 - [ ] W4 评测体系：黄金评测集 + RAGAS + 消融实验
 - [ ] W5 工程规范：测试 / CI / 可观测 / 限流
 - [ ] W6 边界打磨与作品化：README 作品化
