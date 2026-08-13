@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(.venv/Scripts/python -m pip install --quiet rank-bm25 jieba)",
+      "Bash(.venv/Scripts/python -c \"import rank_bm25, jieba; print\\('rank-bm25 ok, jieba', jieba.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c ' *)"
+    ]
+  }
+}

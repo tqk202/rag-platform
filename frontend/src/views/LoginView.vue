@@ -1,0 +1,90 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
+
+const router = useRouter()
+const auth = useAuthStore()
+
+const tab = ref<'login' | 'register'>('login')
+const form = ref({ username: '', password: '', department: 'default' })
+const loading = ref(false)
+
+async function submit() {
+  if (!form.value.username || !form.value.password) {
+    ElMessage.warning('请输入用户名和密码')
+    return
+  }
+  loading.value = true
+  try {
+    if (tab.value === 'register') {
+      await auth.register(form.value.username, form.value.password, form.value.department)
+    }
+    await auth.login(form.value.username, form.value.password)
+    ElMessage.success('登录成功')
+    router.push('/chat')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '操作失败')
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="login-page">
+    <el-card class="login-card">
+      <h2 class="title">企业知识库 RAG 平台</h2>
+      <el-tabs v-model="tab">
+        <el-tab-pane label="登录" name="login">
+          <el-form @submit.prevent>
+            <el-form-item>
+              <el-input v-model="form.username" placeholder="用户名" />
+            </el-form-item>
+            <el-form-item>
+              <el-input v-model="form.password" type="password" placeholder="密码" show-password />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+        <el-tab-pane label="注册" name="register">
+          <el-form @submit.prevent>
+            <el-form-item>
+              <el-input v-model="form.username" placeholder="用户名（至少3位）" />
+            </el-form-item>
+            <el-form-item>
+              <el-input v-model="form.password" type="password" placeholder="密码（至少6位）" show-password />
+            </el-form-item>
+            <el-form-item>
+              <el-input v-model="form.department" placeholder="部门（决定知识库权限范围）" />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
+      <el-button type="primary" class="submit" :loading="loading" @click="submit">
+        {{ tab === 'login' ? '登录' : '注册并登录' }}
+      </el-button>
+    </el-card>
+  </div>
+</template>
+
+<style scoped>
+.login-page {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f2f5;
+}
+.login-card {
+  width: 400px;
+}
+.title {
+  text-align: center;
+  margin: 8px 0 20px;
+}
+.submit {
+  width: 100%;
+  margin-top: 8px;
+}
+</style>
