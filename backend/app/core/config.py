@@ -31,7 +31,12 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "deepseek-chat"
     EMBEDDING_BASE_URL: str = ""
     EMBEDDING_API_KEY: str = ""
-    EMBEDDING_MODEL: str = "bge-m3"
+    EMBEDDING_MODEL: str = "BAAI/bge-m3"  # SiliconFlow 模型名（OpenAI 兼容 /embeddings）
+
+    # 重排模型服务（OpenAI 兼容，SiliconFlow 等）：真实 cross-encoder
+    RERANKER_BASE_URL: str = ""
+    RERANKER_API_KEY: str = ""
+    RERANKER_MODEL: str = "BAAI/bge-reranker-v2-m3"
 
     # 文档处理（W1）
     CHUNK_SIZE: int = 500            # 每块字符数，W4 消融实验会调它
@@ -46,7 +51,7 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 20
 
     # 重排（W2.5c）：召回 -> 重排精排 -> 取前 N 给 LLM
-    RERANKER_BACKEND: str = "lexical"  # lexical(轻量词法,当前) | none(关闭，W4 消融对比用)
+    RERANKER_BACKEND: str = "lexical"  # lexical(词法,离线) | api(真实 bge-reranker,生产) | none(关闭,W4 消融)
     RERANK_RECALL_K: int = 20          # 召回宽度：先召回 N 条再交给重排
     RERANK_TOP_N: int = 5              # 重排后取前 N 条给 LLM
 
