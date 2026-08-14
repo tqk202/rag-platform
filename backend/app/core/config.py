@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     RERANKER_BACKEND: str = "lexical"  # lexical(词法,离线) | api(真实 bge-reranker,生产) | none(关闭,W4 消融)
     RERANK_RECALL_K: int = 20          # 召回宽度：先召回 N 条再交给重排
     RERANK_TOP_N: int = 5              # 重排后取前 N 条给 LLM
+    CITATION_MIN_SCORE_RATIO: float = 0.5  # 引文过滤：重排分低于最强引文该比例者剔除（只留强相关）
 
     # 限流（W5）：LLM 接口每次调用都花钱，防止单用户刷爆 / 被爬虫打
     RATE_LIMIT_RPM: int = 30           # 每用户每分钟允许的 /chat 请求数（token bucket 稳态速率）

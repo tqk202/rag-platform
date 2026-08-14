@@ -44,12 +44,27 @@ async def _retrieve_and_rerank(
 
 
 def _build_citations(numbered: list[dict], answer: str) -> list[Citation]:
-    """从答案文本里提取 [编号] 并映射回切片，生成引文列表。"""
+    """从答案文本里提取 [编号] 并映射回切片，生成引文列表。
+
+    只保留强相关引文：带重排分的切片里，分数低于最强引文分 * 比例 的剔除，
+    避免 LLM 把沾边的资料也标色。重排关闭时无分数，全部保留。
+    """
     cited_numbers: list[int] = []
     for m in _CITE_RE.finditer(answer):
         n = int(m.group(1))
         if 1 <= n <= len(numbered) and n not in cited_numbers:
             cited_numbers.append(n)
+
+    scored = [n for n in cited_numbers if numbered[n - 1].get("rerank_score") is not None]
+    if scored:
+        best = max(numbered[n - 1]["rerank_score"] for n in scored)
+        threshold = best * settings.CITATION_MIN_SCORE_RATIO
+        cited_numbers = [
+            n
+            for n in cited_numbers
+            if numbered[n - 1].get("rerank_score") is None
+            or numbered[n - 1]["rerank_score"] >= threshold
+        ]
 
     return [
         Citation(
