@@ -67,14 +67,26 @@ uvicorn app.main:app --reload
 
 ```bash
 cd backend
-.venv\Scripts\python scripts/ablation.py        # mock 模式（免费，验证流程 + 检索侧相对对比）
-.venv\Scripts\python scripts/ablation.py api    # 真实 LLM 裁判（花少量 API 费用，出真实指标）
+.venv\Scripts\python scripts/ablation.py             # mock 模式（免费，验证流程）
+.venv\Scripts\python scripts/ablation.py api         # 真实 LLM 裁判（花少量 API 费用）
+.venv\Scripts\python scripts/ablation.py api real    # 全真实：bge-m3 嵌入 + bge-reranker 重排 + DeepSeek 裁判
 ```
 
 - **黄金评测集**：`backend/eval_data/golden_set.json`，18 道「问题 + 标准答案出处」，基于演示文档手写。
 - **四个指标**：`context_precision` / `context_recall`（检索质量，用黄金答案出处算）+ `faithfulness` / `answer_relevancy`（生成质量，LLM 当裁判）。手写 RAGAS 风格实现，便于讲清原理。
 - **消融实验**：每个配置跑在独立子进程里控制变量，对比「纯向量 vs 混合」「有重排 vs 无重排」「chunk 500 vs 300」。
 - 评测用**独立库**（`data/eval_rag.db` + `data/eval_milvus.db`），不污染开发数据。报告输出到 `backend/eval_reports/`。
+
+**实测（全真实模式，18 题）**——嵌入 bge-m3 + 重排 bge-reranker-v2-m3（SiliconFlow）+ 裁判 DeepSeek：
+
+| 配置 | context_precision | context_recall | faithfulness | answer_relevancy |
+|---|---|---|---|---|
+| 混合检索+重排 (chunk500) | 1.0 | 1.0 | 1.0 | 1.0 |
+| 纯向量检索 (chunk500) | 0.9444 | 1.0 | 1.0 | 1.0 |
+| 混合检索 无重排 (chunk500) | 0.9444 | 1.0 | 1.0 | 1.0 |
+| 混合检索+重排 (chunk300) | 1.0 | 1.0 | 1.0 | 1.0 |
+
+要点：mock 哈希嵌入下纯向量只有 0.21（无语义），换真实 bge-m3 后 **0.21 → 0.94**——语义嵌入的价值被直接量化；真实重排把无重排漏掉的 2 道题（0.5）修正到满分。全 1.0 是**小语料天花板**（5 份文档、18 题全覆盖），更大语料才能拉开配置差距。
 
 ## 工程规范（W5）
 
@@ -146,10 +158,11 @@ cd backend
 - [x] W2 检索与问答：混合检索（BM25+向量+RRF）+ RAG 问答 + 引文标注（当前 Mock LLM，可切 API）
 - [x] W2.5a 真实 LLM 接入：OpenAI 兼容客户端（DeepSeek），提炼式回答 + 引文 + no_answer 哨兵句
 - [x] W2.5b 流式输出：SSE 逐字推送（meta/delta/done 事件）+ 前端打字机效果
-- [x] W2.5c Rerank 重排：召回(20)→重排→取前5→生成三层管线（RerankerProvider 接口抽象 + 轻量词法实现，可升级 bge-reranker）
+- [x] W2.5c Rerank 重排：召回(20)→重排→取前5→生成三层管线（RerankerProvider 接口抽象 + 真实 bge-reranker-v2-m3，词法实现保留作离线对照）
 - [x] W3 多租户权限：RBAC 角色门卫 + 检索层元数据过滤 + 越权测试（含删除清向量）
 - [x] W4 评测体系：黄金评测集（18 题）+ RAGAS 风格四指标 + 消融实验（纯向量/混合/重排/chunk 大小）
 - [x] W5 工程规范：request_id 全链路追踪 + 令牌桶限流 + GitHub Actions CI
 - [x] W6 边界打磨：外部依赖兜底 + 上传安全边界 + 输入校验
 - [x] W6 版本管理：同文件名重传升版 + 旧切片双存储同步清理
-- [ ] W6 作品化与验收：README 作品化 + 切生产模式重跑真实评测
+- [x] W6 切真实模型：bge-m3 嵌入 + bge-reranker 重排（SiliconFlow）+ 重跑真实评测
+- [ ] W6 生产化验收：Docker 全栈（Postgres + Milvus standalone + Celery）+ 数据重灌 + 演示
