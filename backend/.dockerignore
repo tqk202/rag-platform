@@ -1,0 +1,11 @@
+# 密钥：绝不能打进镜像（.env 里有真实 API key）
+.env
+# 本地数据 / 虚拟环境 / 缓存
+data/
+.venv/
+__pycache__/
+*.pyc
+# 测试与脚本不进入运行时镜像
+tests/
+*.db
+*.log

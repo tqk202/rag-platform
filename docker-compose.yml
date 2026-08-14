@@ -35,6 +35,8 @@ services:
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
     container_name: rag-etcd
+    # 必须监听 0.0.0.0:2379 并通告 etcd:2379，否则只绑 localhost，milvus 连不上
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls=http://0.0.0.0:2379 --data-dir /etcd
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -42,6 +44,11 @@ services:
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
       - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
@@ -55,6 +62,11 @@ services:
     command: minio server /minio_data --console-address ":9001"
     volumes:
       - minio_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   milvus:
     image: milvusdb/milvus:v2.4.15
@@ -77,23 +89,35 @@ services:
       timeout: 20s
       retries: 3
     depends_on:
-      - etcd
-      - minio
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   # ---------- 后端 API ----------
   backend:
     build: ./backend
     container_name: rag-backend
-    env_file: .env
+    # 模型 key 等真实配置放 backend/.env（gitignored，不进镜像），运行时注入
+    env_file:
+      - .env
+      - ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://rag:rag@postgres:5432/rag
       REDIS_URL: redis://redis:6379/0
       VECTOR_URI: http://milvus:19530
+      # 生产强制开关：覆盖开发 .env 里的 inline/mock 等
+      ENVIRONMENT: production
+      DEBUG: "false"
+      INGESTION_MODE: async
+      EMBEDDING_BACKEND: api
+      RERANKER_BACKEND: api
+      LLM_BACKEND: api
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,11 +130,19 @@ services:
   worker:
     build: ./backend
     container_name: rag-worker
-    env_file: .env
+    env_file:
+      - .env
+      - ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://rag:rag@postgres:5432/rag
       REDIS_URL: redis://redis:6379/0
       VECTOR_URI: http://milvus:19530
+      ENVIRONMENT: production
+      DEBUG: "false"
+      INGESTION_MODE: async
+      EMBEDDING_BACKEND: api
+      RERANKER_BACKEND: api
+      LLM_BACKEND: api
     volumes:
       - ./backend:/app
     command: celery -A app.tasks.celery_app worker --loglevel=info

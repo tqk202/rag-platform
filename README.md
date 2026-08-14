@@ -44,6 +44,39 @@ docker compose up --build
 # MinIO 控制台: http://localhost:9001 (minioadmin/minioadmin)
 ```
 
+## 生产部署（Docker Compose 全栈）
+
+一键拉起 6 类服务：Postgres 16（元数据）+ Redis（异步任务队列）+ etcd/MinIO/Milvus standalone（向量库）+ 后端 + Celery worker + 前端（nginx）：
+
+```bash
+# 1. 环境变量（两个文件，compose 按 [.env, backend/.env] 顺序注入，后者覆盖前者）
+cp .env.example .env                  # 根 .env：通用配置（模型地址/安全/上传边界）
+#   backend/.env：真实 API key（gitignored，经 backend/.dockerignore 不进镜像）
+#   生产开关由 compose environment 强制：INGESTION_MODE=async、EMBEDDING_BACKEND=api 等
+
+# 2. 构建并启动全部服务
+docker compose up -d --build
+
+# 3. 灌入演示数据（真实 bge-m3 嵌入；admin / mgr_hr / member_hr，密码均 123456）
+docker compose exec backend python scripts/seed_dev.py
+
+# 4. 访问
+#   前端: http://localhost:5173（nginx 反代 /api → backend:8000）
+#   后端 API: http://localhost:8000/docs
+#   MinIO 控制台: http://localhost:9001 (minioadmin/minioadmin)
+```
+
+**这套编排里能讲的工程点**（对应面试考点，详见面试点.md W7）：
+
+- **异步管线**：`INGESTION_MODE=async`，上传接口只投递 Celery 任务到 Redis 队列，worker 后台处理，前端轮询状态——接口秒回、大文档不卡（实测：828 字节文档 worker 2 秒处理完 pending→ready）。
+- **SSE 流式反代**：nginx 必须 `proxy_buffering off` + `proxy_http_version 1.1` + 清空 `Connection` 头，否则回答会等整段结束才一次性到达（实测：经 nginx 43 个 delta 逐字推送）。
+- **密钥不进镜像**：`backend/.dockerignore` 排除 `.env`/测试/本地库，真实 key 只经 compose `env_file` 在**运行时**注入——镜像可安全分发。
+- **双容器共享文件卷**：backend 与 worker 都挂载 `./backend:/app`，上传落盘的文件 worker 能读到同一份。
+- **健康检查依赖链**：etcd（`etcdctl`）+ MinIO（curl）健康 → Milvus（curl `/healthz`）健康 → backend 才启动。**实跑踩坑**：etcd 默认只监听 localhost，Milvus 在容器网络里连不上，必须 `command: etcd -listen-client-urls=http://0.0.0.0:2379 ...` 显式监听。
+- **境内网络**：Docker Hub 直连超时，`~/.docker/daemon.json` 配置 `registry-mirrors`；构建阶段 Dockerfile 里也配了 pip 清华源 + npm 阿里镜像（否则 pip 直连 PyPI 卡 20 分钟+）。
+
+**W7 实跑验收（全链路 E2E 通过）**：8 容器全健康 → 生产 seed 灌入 5 文档 / 10 切片（真实 bge-m3，1024 维向量入 PostgreSQL + Milvus）→ 注册/登录 → SSE 问答（真实 DeepSeek + 引文）→ 会话 → 改密（旧密码即失效）→ 越权防护（member 删文档 403 / admin 200）→ 删除联动清双存储。
+
 ## 轻量开发模式（无需 Docker，Windows 友好）
 
 用 SQLite + Milvus Lite（本地文件）+ inline 处理，秒级启动，先跑通再切正式环境：
@@ -165,4 +198,4 @@ cd backend
 - [x] W6 边界打磨：外部依赖兜底 + 上传安全边界 + 输入校验
 - [x] W6 版本管理：同文件名重传升版 + 旧切片双存储同步清理
 - [x] W6 切真实模型：bge-m3 嵌入 + bge-reranker 重排（SiliconFlow）+ 重跑真实评测
-- [ ] W6 生产化验收：Docker 全栈（Postgres + Milvus standalone + Celery）+ 数据重灌 + 演示
+- [x] W6 生产化验收：Docker 全栈（Postgres + Milvus standalone + Celery）+ 数据重灌 + 全链路 E2E

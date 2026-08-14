@@ -1,8 +1,9 @@
-"""开发库种子脚本：重建数据 + 三角色账号 + 重灌演示文档（真实嵌入）。
+"""种子脚本：重建数据 + 三角色账号 + 重灌演示文档（真实嵌入）。
 
-验收/演示前跑一次：清空开发库（rag.db + milvus_dev.db），建好
-admin / mgr_hr / member_hr 三个已知密码账号（测 W3 权限 UI），
-再用当前 .env 配置（真实 bge-m3）灌入 demo_docs 下 5 份演示文档。
+验收/演示前跑一次：清空当前配置的库（开发=SQLite+Milvus Lite，
+生产=PostgreSQL+Milvus standalone），建好 admin / mgr_hr / member_hr
+三个已知密码账号（测 W3 权限 UI），再用当前 .env 配置（真实 bge-m3）
+灌入 demo_docs 下 5 份演示文档。
 
 用法（在 backend/ 下）：
   .venv/Scripts/python scripts/seed_dev.py
@@ -20,6 +21,7 @@ import os  # noqa: E402
 
 os.chdir(BACKEND_DIR)
 
+from app.core.config import get_settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import AsyncSessionLocal, engine  # noqa: E402
 from app.models import Base  # noqa: E402
@@ -46,7 +48,9 @@ async def main() -> None:
         await conn.run_sync(Base.metadata.create_all)
     if vector_store.client.has_collection(COLLECTION_NAME):
         vector_store.client.drop_collection(COLLECTION_NAME)
-    print("开发库已重置（SQLite 表 + Milvus 集合）")
+    settings = get_settings()
+    db_kind = "PostgreSQL" if settings.DATABASE_URL.startswith("postgres") else "SQLite"
+    print(f"数据已重置（{db_kind} 表 + Milvus 集合）")
 
     # 2. 三角色账号（密码统一 123456）
     async with AsyncSessionLocal() as db:
