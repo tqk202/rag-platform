@@ -25,3 +25,12 @@ export function register(data: RegisterPayload) {
 export function getMe() {
   return http.get<UserInfo>('/users/me').then((r) => r.data)
 }
+
+export interface DepartmentInfo {
+  value: string
+  label: string
+}
+
+export function listDepartments() {
+  return http.get<DepartmentInfo[]>('/departments').then((r) => r.data)
+}

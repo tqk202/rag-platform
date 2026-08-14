@@ -1,19 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { listDepartments, type DepartmentInfo } from '@/api/auth'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const tab = ref<'login' | 'register'>('login')
-const form = ref({ username: '', password: '', department: 'default' })
+const form = ref({ username: '', password: '', department: '' })
 const loading = ref(false)
+
+// 部门下拉选项：注册页公开接口动态拉取，单一来源（后端配置）
+const departments = ref<DepartmentInfo[]>([])
 
 async function submit() {
   if (!form.value.username || !form.value.password) {
     ElMessage.warning('请输入用户名和密码')
+    return
+  }
+  if (tab.value === 'register' && !form.value.department) {
+    ElMessage.warning('请选择部门')
     return
   }
   loading.value = true
@@ -30,6 +38,15 @@ async function submit() {
     loading.value = false
   }
 }
+
+onMounted(async () => {
+  try {
+    departments.value = await listDepartments()
+    if (departments.value.length) form.value.department = departments.value[0].value
+  } catch {
+    // 拉不到部门选项时保持为空，提交时会被「请选择部门」拦截
+  }
+})
 </script>
 
 <template>
@@ -56,7 +73,18 @@ async function submit() {
               <el-input v-model="form.password" type="password" placeholder="密码（至少6位）" show-password />
             </el-form-item>
             <el-form-item>
-              <el-input v-model="form.department" placeholder="部门（决定知识库权限范围）" />
+              <el-select
+                v-model="form.department"
+                placeholder="请选择部门（决定知识库权限范围）"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="d in departments"
+                  :key="d.value"
+                  :label="d.label"
+                  :value="d.value"
+                />
+              </el-select>
             </el-form-item>
           </el-form>
         </el-tab-pane>

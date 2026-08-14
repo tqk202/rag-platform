@@ -3,6 +3,12 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 部门清单（注册下拉用，单一来源）。value 必须与文档的 department 字段一致，
+# 知识库隔离按此对齐；演示库只有 hr 有文档，其他部门注册后知识库为空正好演示隔离。
+DEPARTMENTS: list[dict[str, str]] = [
+    {"value": "hr", "label": "人力资源部"},
+]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
