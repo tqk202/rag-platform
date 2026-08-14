@@ -14,11 +14,14 @@ http.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截：401 统一跳登录
+// 响应拦截：登录/注册接口的 401 是"用户名或密码错误"，交回页面提示；
+// 其他接口 401 才是令牌失效，统一清会话并跳登录。
 http.interceptors.response.use(
   (resp) => resp,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status
+    const url: string = error.config?.url ?? ''
+    if (status === 401 && !url.includes('/auth/')) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       window.location.href = '/login'
