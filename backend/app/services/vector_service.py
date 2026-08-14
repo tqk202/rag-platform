@@ -83,6 +83,8 @@ class VectorStore:
         if not chunk_ids:
             return
         self.ensure_collection()
+        # 与 search 一致：先加载集合，Milvus 的删除/查询都要求在已加载集合上执行
+        self.client.load_collection(COLLECTION_NAME)
         self.client.delete(collection_name=COLLECTION_NAME, ids=chunk_ids)
 
 

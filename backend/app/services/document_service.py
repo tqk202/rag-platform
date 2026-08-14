@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -58,6 +58,68 @@ async def _read_capped(file) -> bytes:
     return b"".join(parts)
 
 
+async def _delete_doc_chunks(db: AsyncSession, doc_id: int) -> None:
+    """删除文档的所有切片：Milvus 向量 + DB 记录，保证双存储一致不留幽灵。"""
+    chunk_ids = list(
+        (await db.scalars(select(Chunk.id).where(Chunk.document_id == doc_id))).all()
+    )
+    if chunk_ids:
+        vector_store.delete_by_chunk_ids(chunk_ids)
+        await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
+
+
+async def _finish_processing(db: AsyncSession, doc: Document) -> UploadResponse:
+    """处理新内容：生产投递 Celery，开发 inline 直接处理。"""
+    if settings.INGESTION_MODE == "inline":
+        from app.services.ingestion_service import process_document
+
+        try:
+            await process_document(db, doc.id)
+            return UploadResponse(document_id=doc.id, message="处理完成")
+        except Exception:
+            logger.exception("文档 %s 处理失败", doc.id)
+            return UploadResponse(document_id=doc.id, message="处理失败")
+
+    from app.tasks.process_document import process_document_task
+
+    try:
+        process_document_task.delay(doc.id)
+    except Exception:
+        # broker 未就绪时保持 pending，不影响上传；但必须留痕，方便排查
+        logger.warning("投递处理任务失败（broker 未就绪？）doc_id=%s", doc.id)
+    return UploadResponse(document_id=doc.id, message="正在处理")
+
+
+async def _update_document_version(
+    db: AsyncSession, doc: Document, content: bytes, content_hash: str, filename: str
+) -> UploadResponse:
+    """同文件名重传 = 版本更新：版本 +1，先清旧切片再灌新内容。"""
+    if doc.content_hash == content_hash:
+        raise AppError(f"「{doc.file_name}」已是最新版本，无需更新")
+
+    if doc.status not in (DocStatus.ready, DocStatus.failed):
+        # 处理中/待处理的文档不能更新：异步模式下会和新旧处理任务抢数据
+        raise AppError(f"「{doc.file_name}」正在处理中，请稍后再更新")
+
+    # 旧切片先清掉（向量 + DB），否则新旧数据混在库里
+    await _delete_doc_chunks(db, doc.id)
+
+    rel_path = UPLOAD_DIR / f"{content_hash[:16]}_{filename}"
+    rel_path.write_bytes(content)
+
+    doc.content_hash = content_hash
+    doc.file_path = str(rel_path)
+    doc.version += 1
+    doc.chunk_count = 0
+    doc.status = DocStatus.pending
+    await db.commit()
+    await db.refresh(doc)
+
+    result = await _finish_processing(db, doc)
+    result.message = f"更新成功，已升级到第 {doc.version} 版"
+    return result
+
+
 async def upload_document(
     db: AsyncSession, user: User, file, department: str | None = None
 ) -> UploadResponse:
@@ -73,7 +135,17 @@ async def upload_document(
 
     target_dept = _resolve_upload_department(user, department)
 
-    # 同部门内容去重：同一份文件不重复入库
+    # 同部门同文件名 = 版本更新（重新上传新版本文档）
+    existing = await db.scalar(
+        select(Document).where(
+            Document.file_name == filename,
+            Document.department == target_dept,
+        )
+    )
+    if existing is not None:
+        return await _update_document_version(db, existing, content, content_hash, filename)
+
+    # 新文档：同部门内容去重，同一份内容不重复入库（即使文件名不同）
     dup = await db.scalar(
         select(Document).where(
             Document.content_hash == content_hash,
@@ -99,26 +171,9 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
-    # 生产：投递 Celery 异步处理；开发：inline 直接处理（无需 Redis/Worker）
-    if settings.INGESTION_MODE == "inline":
-        from app.services.ingestion_service import process_document
-
-        try:
-            await process_document(db, doc.id)
-            return UploadResponse(document_id=doc.id, message="上传成功，处理完成")
-        except Exception:
-            logger.exception("文档 %s 处理失败", doc.id)
-            return UploadResponse(document_id=doc.id, message="上传成功，但处理失败")
-
-    from app.tasks.process_document import process_document_task
-
-    try:
-        process_document_task.delay(doc.id)
-    except Exception:
-        # broker 未就绪时保持 pending，不影响上传；但必须留痕，方便排查
-        logger.warning("投递处理任务失败（broker 未就绪？）doc_id=%s", doc.id)
-
-    return UploadResponse(document_id=doc.id, message="上传成功，正在处理")
+    result = await _finish_processing(db, doc)
+    result.message = f"上传成功，{result.message}"
+    return result
 
 
 async def list_documents(
@@ -151,11 +206,7 @@ async def delete_document(db: AsyncSession, user: User, doc_id: int) -> None:
         raise PermissionDeniedError("无权删除该文档")
 
     # 先删向量库（Milvus），再删数据库，保证双存储一致，不留"幽灵"数据
-    chunk_ids = list(
-        (await db.scalars(select(Chunk.id).where(Chunk.document_id == doc_id))).all()
-    )
-    if chunk_ids:
-        vector_store.delete_by_chunk_ids(chunk_ids)
+    await _delete_doc_chunks(db, doc_id)
 
     await db.delete(doc)
     await db.commit()
