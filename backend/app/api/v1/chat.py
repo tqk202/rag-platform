@@ -36,8 +36,8 @@ async def chat_stream(
             async for event, payload in rag_service.stream_answer(db, user, data):
                 # SSE 协议：每个事件 = "event: 名字\ndata: JSON\n\n"
                 yield f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-        except Exception as exc:
+        except Exception:
             logger.exception("流式问答失败")
-            yield f"event: error\ndata: {json.dumps({'detail': str(exc)}, ensure_ascii=False)}\n\n"
+            yield f"event: error\ndata: {json.dumps({'detail': '回答生成失败，请稍后重试'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

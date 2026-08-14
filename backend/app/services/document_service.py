@@ -30,12 +30,45 @@ def _resolve_upload_department(user: User, requested: str | None) -> str:
     return user.department
 
 
+def _check_extension(filename: str) -> None:
+    """类型白名单：只收常见文档格式，exe/压缩包/图片等一律拒绝。"""
+    allowed = {
+        e.strip().lower()
+        for e in settings.ALLOWED_UPLOAD_EXTENSIONS.split(",")
+        if e.strip()
+    }
+    suffix = Path(filename).suffix.lower()
+    if suffix not in allowed:
+        raise AppError(f"不支持的文件类型 {suffix}，仅支持：{', '.join(sorted(allowed))}")
+
+
+async def _read_capped(file) -> bytes:
+    """分块读取并限制大小，避免超大文件一次性读进内存。"""
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    parts: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise AppError(f"文件超过 {settings.MAX_UPLOAD_SIZE_MB}MB 限制")
+        parts.append(chunk)
+    return b"".join(parts)
+
+
 async def upload_document(
     db: AsyncSession, user: User, file, department: str | None = None
 ) -> UploadResponse:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    content = await file.read()
+    filename = Path(file.filename or "untitled").name
+    _check_extension(filename)
+
+    content = await _read_capped(file)
+    if not content:
+        raise AppError("文件内容为空")
     content_hash = compute_content_hash(content)
 
     target_dept = _resolve_upload_department(user, department)
@@ -50,7 +83,6 @@ async def upload_document(
     if dup is not None:
         raise AppError(f"该文档已存在：{dup.file_name}")
 
-    filename = Path(file.filename or "untitled").name
     rel_path = UPLOAD_DIR / f"{content_hash[:16]}_{filename}"
     rel_path.write_bytes(content)
 

@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     INGESTION_MODE: str = "async"    # async(Celery生产) | inline(开发直接处理)
     MILVUS_COLLECTION: str = "rag_chunks"
 
+    # 上传安全边界（W6）：类型白名单 + 大小上限，防误传/恶意文件撑爆内存
+    ALLOWED_UPLOAD_EXTENSIONS: str = ".txt,.md,.pdf,.doc,.docx"
+    MAX_UPLOAD_SIZE_MB: int = 20
+
     # 重排（W2.5c）：召回 -> 重排精排 -> 取前 N 给 LLM
     RERANKER_BACKEND: str = "lexical"  # lexical(轻量词法,当前) | none(关闭，W4 消融对比用)
     RERANK_RECALL_K: int = 20          # 召回宽度：先召回 N 条再交给重排
