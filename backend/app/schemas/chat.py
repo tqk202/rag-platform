@@ -1,5 +1,12 @@
-"""问答相关接口结构：回答必须带引文，这是降低幻觉的关键设计。"""
-from pydantic import BaseModel, field_validator
+"""问答相关接口结构：回答必须带引文，这是降低幻觉的关键设计。
+
+会话历史（W6.5）：/chat 带可选 session_id 时落库到指定会话，不带则自动新建，
+响应统一返回 session_id，供前端刷新不丢。
+"""
+import json
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class Citation(BaseModel):
@@ -13,6 +20,7 @@ class Citation(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     history: list[dict] = []  # [{"role": "user"|"assistant", "content": "..."}]
+    session_id: int | None = None  # 带则追加到该会话；不带则自动新建
 
     @field_validator("question")
     @classmethod
@@ -28,3 +36,36 @@ class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation] = []
     no_answer: bool = False
+    session_id: int | None = None
+
+
+class ChatMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    role: str
+    content: str
+    citations: list[Citation] = []
+    no_answer: bool = False
+    created_at: datetime
+
+    @field_validator("citations", mode="before")
+    @classmethod
+    def _parse_citations(cls, v):
+        # DB 里是 JSON 字符串，schema 层解析回列表
+        if isinstance(v, str):
+            return json.loads(v) if v else []
+        return v or []
+
+
+class ChatSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatSessionDetail(ChatSessionOut):
+    messages: list[ChatMessageOut] = []

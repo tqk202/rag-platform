@@ -29,4 +29,36 @@ export interface ChatResponse {
   answer: string
   citations: Citation[]
   no_answer: boolean
+  session_id?: number | null
+}
+
+export interface ChatMessageInfo {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  citations: Citation[]
+  no_answer: boolean
+  created_at: string
+}
+
+export interface ChatSessionInfo {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatSessionDetail extends ChatSessionInfo {
+  messages: ChatMessageInfo[]
+}
+
+export interface ChunkInfo {
+  id: number
+  chunk_index: number
+  content: string
+  page_no?: number | null
+}
+
+export interface DocumentDetail extends DocumentInfo {
+  chunks: ChunkInfo[]
 }

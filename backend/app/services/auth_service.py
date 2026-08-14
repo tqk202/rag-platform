@@ -6,6 +6,7 @@ from app.core.exceptions import AppError, NotFoundError, UnauthorizedError
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.user import (
+    PasswordChange,
     TokenResponse,
     UserCreate,
     UserCreateAdmin,
@@ -54,6 +55,16 @@ async def create_user(db: AsyncSession, data: UserCreateAdmin) -> User:
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def change_password(
+    db: AsyncSession, user: User, data: PasswordChange
+) -> None:
+    """用户改自己的密码：先校验原密码，再写新哈希。"""
+    if not verify_password(data.old_password, user.hashed_password):
+        raise AppError("原密码不正确")
+    user.hashed_password = hash_password(data.new_password)
+    await db.commit()
 
 
 async def update_user(db: AsyncSession, user_id: int, data: UserUpdate) -> User:

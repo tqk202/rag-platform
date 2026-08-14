@@ -1,5 +1,5 @@
 import http from './http'
-import type { DocumentInfo } from '@/types'
+import type { DocumentDetail, DocumentInfo } from '@/types'
 
 export interface Page<T> {
   items: T[]
@@ -14,14 +14,24 @@ export function listDocuments(page = 1, pageSize = 20) {
     .then((r) => r.data)
 }
 
-export function uploadDocument(file: File) {
+export function uploadDocument(file: File, onProgress?: (percent: number) => void) {
   const form = new FormData()
   form.append('file', file)
   return http
-    .post<{ document_id: number; message: string }>('/documents/upload', form)
+    .post<{ document_id: number; message: string }>('/documents/upload', form, {
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) {
+          onProgress(Math.round((e.loaded / e.total) * 100))
+        }
+      },
+    })
     .then((r) => r.data)
 }
 
 export function deleteDocument(id: number) {
   return http.delete<{ ok: boolean }>(`/documents/${id}`).then((r) => r.data)
+}
+
+export function getDocument(id: number) {
+  return http.get<DocumentDetail>(`/documents/${id}`).then((r) => r.data)
 }

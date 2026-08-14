@@ -19,6 +19,20 @@ class DocumentOut(BaseModel):
     created_at: datetime
 
 
+class ChunkOut(BaseModel):
+    """文档详情里的切片：按序全文展示，供引文跳转定位。"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    chunk_index: int
+    content: str
+    page_no: int | None = None
+
+
+class DocumentDetail(DocumentOut):
+    chunks: list[ChunkOut] = []
+
+
 class UploadResponse(BaseModel):
     document_id: int
     message: str

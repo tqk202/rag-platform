@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from app.api.deps import CurrentUser, DbSession, require_role
 from app.models.user import Role, User
 from app.schemas.common import Page
-from app.schemas.document import DocumentOut, UploadResponse
+from app.schemas.document import DocumentDetail, DocumentOut, UploadResponse
 from app.services import document_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -34,6 +34,13 @@ async def list_documents(
     page_size: int = Query(20, ge=1, le=100),
 ) -> Page[DocumentOut]:
     return await document_service.list_documents(db, user, page, page_size)
+
+
+@router.get("/{doc_id}", response_model=DocumentDetail, summary="文档详情（含切片全文）")
+async def get_document(
+    doc_id: int, db: DbSession, user: CurrentUser
+) -> DocumentDetail:
+    return await document_service.get_document_detail(db, user, doc_id)
 
 
 @router.delete("/{doc_id}", summary="删除文档")

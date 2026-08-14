@@ -11,7 +11,7 @@ from app.models.chunk import Chunk
 from app.models.document import DocStatus, Document
 from app.models.user import Role, User
 from app.schemas.common import Page
-from app.schemas.document import DocumentOut, UploadResponse
+from app.schemas.document import ChunkOut, DocumentDetail, DocumentOut, UploadResponse
 from app.services.ingestion_service import compute_content_hash
 from app.services.vector_service import vector_store
 
@@ -195,6 +195,28 @@ async def list_documents(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+async def get_document_detail(
+    db: AsyncSession, user: User, doc_id: int
+) -> DocumentDetail:
+    """文档详情：元信息 + 按序切片全文。部门隔离——非管理员只能看本部门。"""
+    doc = await db.get(Document, doc_id)
+    if doc is None:
+        raise NotFoundError("文档不存在")
+    if user.role != Role.admin and doc.department != user.department:
+        raise PermissionDeniedError("无权查看该文档")
+
+    stmt = (
+        select(Chunk)
+        .where(Chunk.document_id == doc.id)
+        .order_by(Chunk.chunk_index)
+    )
+    chunks = list((await db.scalars(stmt)).all())
+    return DocumentDetail(
+        **DocumentOut.model_validate(doc).model_dump(),
+        chunks=[ChunkOut.model_validate(c) for c in chunks],
     )
 
 

@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_role
 from app.models.user import Role, User
-from app.schemas.user import UserCreateAdmin, UserOut, UserUpdate
+from app.schemas.user import PasswordChange, UserCreateAdmin, UserOut, UserUpdate
 from app.services import auth_service
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -17,6 +17,14 @@ AdminGuard = Annotated[User, Depends(require_role(Role.admin))]
 @router.get("/me", response_model=UserOut, summary="当前用户信息")
 async def me(user: CurrentUser) -> User:
     return user
+
+
+@router.patch("/me/password", summary="修改自己的密码")
+async def change_password(
+    db: DbSession, user: CurrentUser, data: PasswordChange
+) -> dict:
+    await auth_service.change_password(db, user, data)
+    return {"ok": True}
 
 
 @router.get("", response_model=list[UserOut], summary="用户列表（仅管理员）")

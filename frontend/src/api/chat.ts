@@ -1,20 +1,38 @@
 import http from './http'
-import type { ChatResponse, Citation } from '@/types'
+import type {
+  ChatResponse,
+  ChatSessionDetail,
+  ChatSessionInfo,
+  Citation,
+} from '@/types'
 
 export function chat(
   question: string,
   history: Array<{ role: string; content: string }> = [],
+  sessionId?: number | null,
 ) {
   return http
-    .post<ChatResponse>('/chat', { question, history })
+    .post<ChatResponse>('/chat', { question, history, session_id: sessionId })
     .then((r) => r.data)
 }
 
 export interface StreamCallbacks {
   onMeta?: (chunkCount: number) => void
   onDelta?: (fullText: string) => void
-  onDone?: (answer: string, citations: Citation[], noAnswer: boolean) => void
+  onDone?: (answer: string, citations: Citation[], noAnswer: boolean, sessionId?: number | null) => void
   onError?: (detail: string) => void
+}
+
+export function listSessions() {
+  return http.get<ChatSessionInfo[]>('/chat/sessions').then((r) => r.data)
+}
+
+export function getSession(id: number) {
+  return http.get<ChatSessionDetail>(`/chat/sessions/${id}`).then((r) => r.data)
+}
+
+export function deleteSession(id: number) {
+  return http.delete<{ ok: boolean }>(`/chat/sessions/${id}`).then((r) => r.data)
 }
 
 /**
@@ -29,6 +47,7 @@ export async function chatStream(
   question: string,
   history: Array<{ role: string; content: string }> = [],
   cb: StreamCallbacks = {},
+  sessionId?: number | null,
 ) {
   const resp = await fetch('/api/v1/chat/stream', {
     method: 'POST',
@@ -36,7 +55,7 @@ export async function chatStream(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
     },
-    body: JSON.stringify({ question, history }),
+    body: JSON.stringify({ question, history, session_id: sessionId }),
   })
   if (!resp.ok || !resp.body) {
     cb.onError?.(`请求失败（HTTP ${resp.status}）`)
@@ -74,7 +93,7 @@ export async function chatStream(
         answer += payload
         cb.onDelta?.(answer)
       } else if (event === 'done') {
-        cb.onDone?.(payload.answer, payload.citations, payload.no_answer)
+        cb.onDone?.(payload.answer, payload.citations, payload.no_answer, payload.session_id)
       } else if (event === 'error') {
         cb.onError?.(payload.detail)
       }

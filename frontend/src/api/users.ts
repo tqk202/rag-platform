@@ -25,3 +25,12 @@ export function createUser(data: CreateUserPayload) {
 export function updateUser(id: number, data: UpdateUserPayload) {
   return http.patch<UserInfo>(`/users/${id}`, data).then((r) => r.data)
 }
+
+export function changePassword(oldPassword: string, newPassword: string) {
+  return http
+    .patch<{ ok: boolean }>('/users/me/password', {
+      old_password: oldPassword,
+      new_password: newPassword,
+    })
+    .then((r) => r.data)
+}

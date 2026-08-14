@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
-from app.services import rerank_service, retrieval_service
+from app.services import chat_session_service, rerank_service, retrieval_service
 from app.services.llm_service import NO_ANSWER_SENTINEL, get_llm_provider
 
 logger = logging.getLogger(__name__)
@@ -63,13 +63,35 @@ def _build_citations(numbered: list[dict], answer: str) -> list[Citation]:
     ]
 
 
+async def _persist_and_tag(
+    db: AsyncSession, user: User, data: ChatRequest, response: ChatResponse
+) -> ChatResponse:
+    """问答落库（新建或追加会话），并把真实 session_id 写回响应。"""
+    session = await chat_session_service.save_exchange(
+        db,
+        user,
+        data.session_id,
+        data.question,
+        response.answer,
+        response.citations,
+        response.no_answer,
+    )
+    response.session_id = session.id
+    return response
+
+
 async def answer(
     db: AsyncSession, user: User, data: ChatRequest
 ) -> ChatResponse:
     # 1. 召回 + 重排（检索层已完成部门权限过滤）
     chunks = await _retrieve_and_rerank(db, user, data)
     if not chunks:
-        return ChatResponse(answer=NO_DOC_ANSWER, citations=[], no_answer=True)
+        return await _persist_and_tag(
+            db,
+            user,
+            data,
+            ChatResponse(answer=NO_DOC_ANSWER, citations=[], no_answer=True),
+        )
 
     # 2. 编号 -> 组装上下文 -> 生成
     numbered = [{**c, "no": i} for i, c in enumerate(chunks, start=1)]
@@ -77,13 +99,23 @@ async def answer(
     result = await llm.generate(data.question, numbered)
 
     if result.no_answer:
-        return ChatResponse(answer=result.answer, citations=[], no_answer=True)
+        return await _persist_and_tag(
+            db,
+            user,
+            data,
+            ChatResponse(answer=result.answer, citations=[], no_answer=True),
+        )
 
-    # 3. 引文解析
-    return ChatResponse(
-        answer=result.answer,
-        citations=_build_citations(numbered, result.answer),
-        no_answer=False,
+    # 3. 引文解析 + 落库
+    return await _persist_and_tag(
+        db,
+        user,
+        data,
+        ChatResponse(
+            answer=result.answer,
+            citations=_build_citations(numbered, result.answer),
+            no_answer=False,
+        ),
     )
 
 
@@ -97,10 +129,14 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
     """
     chunks = await _retrieve_and_rerank(db, user, data)
     if not chunks:
+        session = await chat_session_service.save_exchange(
+            db, user, data.session_id, data.question, NO_DOC_ANSWER, [], True
+        )
         yield "done", {
             "answer": NO_DOC_ANSWER,
             "no_answer": True,
             "citations": [],
+            "session_id": session.id,
         }
         return
 
@@ -125,10 +161,14 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
 
     answer = "".join(parts)
     no_answer = NO_ANSWER_SENTINEL in answer
+    citations = _build_citations(numbered, answer)
+    # 流式完整回答拿到后才落库，避免回答中断留半个会话
+    session = await chat_session_service.save_exchange(
+        db, user, data.session_id, data.question, answer, citations, no_answer
+    )
     yield "done", {
         "answer": answer,
         "no_answer": no_answer,
-        "citations": [
-            c.model_dump() for c in _build_citations(numbered, answer)
-        ],
+        "citations": [c.model_dump() for c in citations],
+        "session_id": session.id,
     }
