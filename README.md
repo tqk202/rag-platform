@@ -1,6 +1,8 @@
 # rag-platform · 企业知识库 RAG 问答平台
 
-面向真实企业场景的检索增强生成（RAG）问答系统，突出工程化落地：多租户权限隔离、文档生命周期管理、异步文档处理、全链路可观测与质量评测体系。
+[![CI](https://github.com/tqk202/rag-platform/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/tqk202/rag-platform/actions)
+
+> 面向真实企业场景的检索增强生成（RAG）问答系统，突出工程化落地：多租户权限隔离、文档生命周期管理、异步文档处理、全链路可观测与质量评测体系。
 
 ## 功能特性
 
@@ -90,3 +92,4 @@ docs/
 ## 文档
 
 - [架构说明](docs/architecture.md)
+- GitHub 仓库：[tqk202/rag-platform](https://github.com/tqk202/rag-platform)
