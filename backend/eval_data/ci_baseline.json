@@ -1,0 +1,11 @@
+{
+  "label": "CI 评测基线（mock 嵌入/裁判，离线可跑；检索引擎 1.0 满分）",
+  "metrics": {
+    "context_precision": 1.0,
+    "context_recall": 1.0,
+    "faithfulness": 1.0,
+    "answer_relevancy": 1.0,
+    "no_answer_rate": 0.0
+  },
+  "questions": 18
+}

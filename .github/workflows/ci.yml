@@ -37,3 +37,18 @@ jobs:
         run: pip install ruff
       - name: 检查
         run: ruff check backend/app backend/scripts backend/tests
+
+  eval:
+    name: 评测护栏 (golden eval)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt
+      - name: 跑黄金评测 + 质量回退检查
+        run: |
+          cd backend
+          python scripts/check_eval_ci.py
