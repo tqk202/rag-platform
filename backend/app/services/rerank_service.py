@@ -19,6 +19,7 @@ import httpx
 import jieba
 
 from app.core.config import get_settings
+from app.core.http_retry import async_retry
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -69,24 +70,33 @@ class ApiReranker(RerankerProvider):
     真实 cross-encoder：query 与每条文档拼接打分，比词法重排更准。
     """
 
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
-        self._client = httpx.AsyncClient(timeout=90)
+        # transport 注入仅用于测试；生产走真实网络
+        self._client = httpx.AsyncClient(timeout=90, transport=transport)
 
     async def rerank(self, query: str, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not chunks:
             return chunks
-        resp = await self._client.post(
-            f"{self.base_url}/rerank",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model,
-                "query": query,
-                "documents": [c["content"] for c in chunks],
-                "top_n": len(chunks),  # 全量打分，排序交给调用方截取前 N
-            },
+        resp = await async_retry(
+            lambda: self._client.post(
+                f"{self.base_url}/rerank",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": self.model,
+                    "query": query,
+                    "documents": [c["content"] for c in chunks],
+                    "top_n": len(chunks),  # 全量打分，排序交给调用方截取前 N
+                },
+            )
         )
         resp.raise_for_status()
         results = resp.json()["results"]

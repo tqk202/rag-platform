@@ -11,6 +11,7 @@ import random
 import httpx
 
 from app.core.config import get_settings
+from app.core.http_retry import retry
 
 settings = get_settings()
 
@@ -47,17 +48,26 @@ class ApiEmbeddingProvider(EmbeddingProvider):
     评测是串行脚本，均无并发问题。
     """
 
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        transport: httpx.BaseTransport | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
-        self._client = httpx.Client(timeout=90)
+        # transport 注入仅用于测试；生产走真实网络
+        self._client = httpx.Client(timeout=90, transport=transport)
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        resp = self._client.post(
-            f"{self.base_url}/embeddings",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={"model": self.model, "input": texts},
+        resp = retry(
+            lambda: self._client.post(
+                f"{self.base_url}/embeddings",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"model": self.model, "input": texts},
+            )
         )
         resp.raise_for_status()
         data = sorted(resp.json()["data"], key=lambda d: d["index"])

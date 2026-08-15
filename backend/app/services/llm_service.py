@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.core.config import get_settings
+from app.core.http_retry import async_retry
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -80,11 +81,18 @@ class MockLLMProvider(LLMProvider):
 class OpenAICompatibleLLM(LLMProvider):
     """OpenAI 兼容协议的 LLM。base_url 可指向 DeepSeek / 通义 / Qwen / OpenAI。"""
 
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
-        self._client = httpx.AsyncClient(timeout=90)
+        # transport 注入仅用于测试（MockTransport 模拟上游故障）；生产走真实网络
+        self._client = httpx.AsyncClient(timeout=90, transport=transport)
 
     def _build_messages(self, question: str, chunks: list[dict]) -> list[dict]:
         context = "\n\n".join(f"[{c['no']}] {c['content']}" for c in chunks)
@@ -105,15 +113,17 @@ class OpenAICompatibleLLM(LLMProvider):
         ]
 
     async def generate(self, question: str, chunks: list[dict]) -> LLMResult:
-        resp = await self._client.post(
-            f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model,
-                "messages": self._build_messages(question, chunks),
-                "temperature": 0.3,
-                "stream": False,
-            },
+        resp = await async_retry(
+            lambda: self._client.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "model": self.model,
+                    "messages": self._build_messages(question, chunks),
+                    "temperature": 0.3,
+                    "stream": False,
+                },
+            )
         )
         resp.raise_for_status()
         answer = resp.json()["choices"][0]["message"]["content"].strip()

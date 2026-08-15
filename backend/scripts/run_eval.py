@@ -51,10 +51,10 @@ from app.models import Base  # noqa: E402
 from app.models.document import DocStatus, Document  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.services import rerank_service, retrieval_service  # noqa: E402
-from app.services.sparse_service import get_sparse_index  # noqa: E402
 from app.services.evaluator import LLMJudge, evaluate_case  # noqa: E402
 from app.services.ingestion_service import compute_content_hash, process_document  # noqa: E402
 from app.services.llm_service import NO_ANSWER_SENTINEL, get_llm_provider  # noqa: E402
+from app.services.sparse_service import get_sparse_index  # noqa: E402
 from app.services.vector_service import COLLECTION_NAME, vector_store  # noqa: E402
 
 settings = get_settings()
