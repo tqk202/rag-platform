@@ -47,7 +47,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: 安装依赖
-        run: pip install -r backend/requirements.txt
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
       - name: 跑黄金评测 + 质量回退检查
         run: |
           cd backend
