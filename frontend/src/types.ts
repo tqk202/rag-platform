@@ -63,3 +63,20 @@ export interface ChunkInfo {
 export interface DocumentDetail extends DocumentInfo {
   chunks: ChunkInfo[]
 }
+
+export interface AuditLogInfo {
+  id: number
+  actor_username: string | null
+  department: string | null
+  action: string
+  object_type: string | null
+  object_id: number | null
+  detail: string | null
+  created_at: string
+}
+
+export interface ReconcileResult {
+  document_id: number
+  orphans_cleaned: number
+  missing_in_milvus: number[]
+}
