@@ -1,136 +1,446 @@
 {
   "meta": {
-    "name": "rag-platform 黄金评测集",
-    "description": "基于 backend/demo_docs 下 5 份 hr 部门管理制度手写。golden_passage 必须能从对应文档文本中逐字命中，评测器用它定位「标准答案切片」来算 context_precision / context_recall。",
+    "name": "星辰云驰 企业知识库 黄金评测集 v2",
+    "description": "基于 backend/demo_docs 下 8 份企业制度文档（含脏数据）手写。golden_passage 必须能从对应文档文本中逐字命中（评测器忽略空白后匹配）。cases 为可答题，reject_cases 为无关题（期望 no_answer，单独度量拒答率，不拖累可答题的 RAGAS 四指标）。",
     "department": "hr",
-    "created": "2026-08-13"
+    "created": "2026-08-15"
   },
   "cases": [
     {
-      "id": "annual-01",
-      "doc": "年假与休假管理制度.md",
-      "question": "入职满一年的员工每年有多少天带薪年假？",
-      "golden_passage": "累计工作满一年不满十年的，年假五天",
-      "expect": "五天"
+      "id": "onboard-01",
+      "doc": "员工手册_2026年修订版（最终稿）.md",
+      "category": "单跳",
+      "question": "新员工的试用期是多久？",
+      "golden_passage": "试用期为三个月，最长不超过六个月",
+      "expect": "三个月，最长不超过六个月"
     },
     {
-      "id": "annual-02",
-      "doc": "年假与休假管理制度.md",
-      "question": "员工离职时，未休的年假怎么补偿？",
-      "golden_passage": "员工离职时，未休年假按日工资的三倍折算补偿，随最后一个月工资发放",
-      "expect": "按日工资三倍折算补偿"
+      "id": "onboard-02",
+      "doc": "员工手册_2026年修订版（最终稿）.md",
+      "category": "单跳",
+      "question": "员工入职当天需要提交哪些材料？",
+      "golden_passage": "员工入职当日须提交学历学位证书、身份证复印件以及原单位离职证明",
+      "expect": "学历学位证书、身份证复印件、原单位离职证明"
     },
     {
-      "id": "annual-03",
-      "doc": "年假与休假管理制度.md",
-      "question": "未休完的年假可以顺延到什么时候使用？",
-      "golden_passage": "未休完的年假可顺延至次年三月三十一日前使用",
-      "expect": "次年三月三十一日前"
+      "id": "onboard-03",
+      "doc": "员工手册_2026年修订版（最终稿）.md",
+      "category": "条件",
+      "question": "工龄满多久可以自愿参加企业年金？",
+      "golden_passage": "工龄满一年后可自愿参与",
+      "expect": "工龄满一年"
     },
     {
-      "id": "annual-04",
-      "doc": "年假与休假管理制度.md",
+      "id": "attendance-01",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "单跳",
+      "question": "员工忘记打卡，每月可以补卡几次？",
+      "golden_passage": "忘打卡的每月可补卡两次",
+      "expect": "每月两次"
+    },
+    {
+      "id": "attendance-02",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "单跳",
+      "question": "工作日加班的加班费是平时工资的几倍？",
+      "golden_passage": "工作日加班按平时工资的1.5倍计算",
+      "expect": "1.5 倍"
+    },
+    {
+      "id": "attendance-03",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "条件",
+      "question": "休息日加班可以选择调休吗？",
+      "golden_passage": "休息日加班按平时工资的2倍计算或安排调休",
+      "expect": "可以，按 2 倍工资或安排调休"
+    },
+    {
+      "id": "attendance-04",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "单跳",
+      "question": "调休需要在多长时间内使用完毕？",
+      "golden_passage": "调休须在加班发生后六个月内使用完毕",
+      "expect": "六个月内"
+    },
+    {
+      "id": "attendance-05",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "数值",
+      "question": "累计工龄满十年不满二十年的员工，年假有几天？",
+      "golden_passage": "满十年不满二十年的，年假十天",
+      "expect": "十天"
+    },
+    {
+      "id": "attendance-06",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "单跳",
       "question": "休年假需要提前几天提交申请？",
       "golden_passage": "员工休年假须提前三个工作日提交申请",
       "expect": "三个工作日"
     },
     {
-      "id": "expense-01",
-      "doc": "费用报销管理制度.md",
-      "question": "报销单提交后需要经过哪些人审批？",
-      "golden_passage": "报销单提交后由部门主管审批，再经财务部门复核，全部通过后进入打款流程",
-      "expect": "部门主管审批、财务部门复核"
+      "id": "attendance-07",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "单跳",
+      "question": "当年没休完的年假可以顺延到什么时候？",
+      "golden_passage": "未休完的年假可顺延至次年三月三十一日前使用",
+      "expect": "次年三月三十一日前"
     },
     {
-      "id": "expense-02",
-      "doc": "费用报销管理制度.md",
-      "question": "报销款审批完成后多久到账？",
-      "golden_passage": "报销款项在审批完成后五个工作日内发放到员工工资卡",
-      "expect": "五个工作日"
+      "id": "attendance-08",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "单跳",
+      "question": "员工迟到超过两小时按什么处理？",
+      "golden_passage": "迟到 2 小时以上的，按事假一天处理",
+      "expect": "按事假一天处理"
     },
     {
-      "id": "expense-03",
-      "doc": "费用报销管理制度.md",
-      "question": "单笔报销金额超过多少需要附发票原件？",
-      "golden_passage": "单笔金额超过两千元的报销，须附发票原件供财务查验",
-      "expect": "两千元"
+      "id": "attendance-09",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "条件",
+      "question": "事假每月累计超过几天需要报人事部门审批？",
+      "golden_passage": "每月累计事假超过五天需报人事部门审批",
+      "expect": "超过五天"
     },
     {
-      "id": "expense-04",
-      "doc": "费用报销管理制度.md",
-      "question": "业务招待费每人每次的报销上限是多少？",
-      "golden_passage": "招待标准为每人每次不超过三百元",
-      "expect": "三百元"
+      "id": "attendance-10",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "条件",
+      "question": "员工连续旷工多少天，公司可以解除劳动合同？",
+      "golden_passage": "连续旷工 5 天或全年累计旷工 15 天的，公司可解除劳动合同",
+      "expect": "连续 5 天或全年累计 15 天"
     },
     {
-      "id": "attendance-01",
-      "doc": "员工考勤与加班管理制度.md",
-      "question": "工作日加班的加班费怎么计算？",
-      "golden_passage": "工作日加班按平时工资的1.5倍计算",
-      "expect": "平时工资的 1.5 倍"
+      "id": "attendance-11",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "条件",
+      "question": "部门经理级别以上的员工加班还有加班费吗？",
+      "golden_passage": "部门经理级（含）以上人员加班不再计加班费",
+      "expect": "不再计加班费"
     },
     {
-      "id": "attendance-02",
-      "doc": "员工考勤与加班管理制度.md",
-      "question": "加班的调休需要在多长时间内用完？",
-      "golden_passage": "调休须在加班发生后六个月内使用完毕",
-      "expect": "六个月"
+      "id": "attendance-12",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "数值",
+      "question": "女员工生育的产假是多少天？",
+      "golden_passage": "女员工生育享受产假一百五十八天",
+      "expect": "一百五十八天"
     },
     {
-      "id": "attendance-03",
-      "doc": "员工考勤与加班管理制度.md",
-      "question": "员工忘打卡每月可以补卡几次？",
-      "golden_passage": "忘打卡的每月可补卡两次",
-      "expect": "两次"
+      "id": "attendance-13",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "数值",
+      "question": "男员工配偶生育，陪产假有几天？",
+      "golden_passage": "男员工配偶生育的，享受陪产假十五天",
+      "expect": "十五天"
     },
     {
-      "id": "attendance-04",
-      "doc": "员工考勤与加班管理制度.md",
-      "question": "公司标准工作时间是几点到几点？",
-      "golden_passage": "标准工作时间为每周一到周五的早上九点到下午六点，中午休息一小时",
-      "expect": "早九点到下午六点，午休一小时"
+      "id": "attendance-14",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "单跳",
+      "question": "探亲假适用于哪些员工？",
+      "golden_passage": "探亲假适用于异地工作员工",
+      "expect": "异地工作员工"
+    },
+    {
+      "id": "salary-01",
+      "doc": "薪酬与绩效管理制度（含2026职级薪资表）.md",
+      "category": "数值",
+      "question": "T4 职级的月薪范围是多少？",
+      "golden_passage": "T4 级别的月薪范围为一万二千元至一万六千元",
+      "expect": "一万二千元至一万六千元"
+    },
+    {
+      "id": "salary-02",
+      "doc": "薪酬与绩效管理制度（含2026职级薪资表）.md",
+      "category": "单跳",
+      "question": "统一调薪安排在每年几月？",
+      "golden_passage": "每年 3 月统一调薪",
+      "expect": "每年 3 月"
+    },
+    {
+      "id": "salary-03",
+      "doc": "薪酬与绩效管理制度（含2026职级薪资表）.md",
+      "category": "数值",
+      "question": "年度绩效为 A 等的员工，年终奖发放几个月的工资？",
+      "golden_passage": "年度绩效为 A 等的，发放相当于三个月基本工资的年终奖",
+      "expect": "三个月基本工资"
+    },
+    {
+      "id": "salary-04",
+      "doc": "薪酬与绩效管理制度（含2026职级薪资表）.md",
+      "category": "数值",
+      "question": "加班费的计算基数是什么？",
+      "golden_passage": "加班费以基本工资为基数计算，不含绩效工资与各类补贴",
+      "expect": "基本工资，不含绩效与补贴"
+    },
+    {
+      "id": "salary-05",
+      "doc": "薪酬与绩效管理制度（含2026职级薪资表）.md",
+      "category": "条件",
+      "question": "连续工龄不满两年的员工请病假，工资按多少发放？",
+      "golden_passage": "连续工龄不满两年的，按本人基本工资的60%发放",
+      "expect": "本人基本工资的 60%"
+    },
+    {
+      "id": "salary-06",
+      "doc": "薪酬与绩效管理制度（含2026职级薪资表）.md",
+      "category": "单跳",
+      "question": "工资每个月几号发放？",
+      "golden_passage": "工资于每月十五日发放上月工资",
+      "expect": "每月十五日"
     },
     {
       "id": "travel-01",
-      "doc": "差旅与住宿标准.md",
-      "question": "一线城市出差住宿标准是每晚多少钱？",
-      "golden_passage": "一线城市每晚不超过六百元",
+      "doc": "差旅与报销管理规定（新旧标准对照）.md",
+      "category": "数值",
+      "question": "去一线城市出差，住宿标准每晚多少钱？",
+      "golden_passage": "一线城市出差住宿标准是每晚不超过六百元",
       "expect": "不超过六百元"
     },
     {
       "id": "travel-02",
-      "doc": "差旅与住宿标准.md",
-      "question": "出差补贴在一线城市每天多少？",
-      "golden_passage": "一线城市每天一百二十元",
-      "expect": "一百二十元"
+      "doc": "差旅与报销管理规定（新旧标准对照）.md",
+      "category": "数值",
+      "question": "去二线城市出差，住宿上限是多少？",
+      "golden_passage": "二线城市不超过四百元",
+      "expect": "不超过四百元"
     },
     {
       "id": "travel-03",
-      "doc": "差旅与住宿标准.md",
-      "question": "自驾出差的油费按什么标准报销？",
+      "doc": "差旅与报销管理规定（新旧标准对照）.md",
+      "category": "数值",
+      "question": "一线城市出差每天补贴多少钱？",
+      "golden_passage": "一线城市出差补贴每天一百二十元",
+      "expect": "每天一百二十元"
+    },
+    {
+      "id": "travel-04",
+      "doc": "差旅与报销管理规定（新旧标准对照）.md",
+      "category": "单跳",
+      "question": "自驾出差，油费按什么标准报销？",
       "golden_passage": "自驾出差的，按每公里一块五的标准报销油费",
       "expect": "每公里一块五"
     },
     {
-      "id": "training-01",
-      "doc": "培训与职业发展制度.md",
-      "question": "公司每年为员工提供多少学时的培训？",
-      "golden_passage": "公司为每位员工提供每年不少于四十学时的培训机会",
-      "expect": "不少于四十学时"
+      "id": "travel-05",
+      "doc": "差旅与报销管理规定（新旧标准对照）.md",
+      "category": "数值",
+      "question": "招待客户吃饭，每人每次上限是多少？",
+      "golden_passage": "招待费标准为每人每次不超过三百元",
+      "expect": "每人每次不超过三百元"
     },
     {
-      "id": "training-02",
-      "doc": "培训与职业发展制度.md",
-      "question": "员工考取职业资格证书的费用由谁承担？",
-      "golden_passage": "员工参加与岗位相关的职业资格证书考试，通过后公司报销考试费用",
-      "expect": "公司报销考试费用"
+      "id": "travel-06",
+      "doc": "差旅与报销管理规定（新旧标准对照）.md",
+      "category": "单跳",
+      "question": "报销款审批完成后多久到账？",
+      "golden_passage": "报销款项在审批完成后五个工作日内发放到员工工资卡",
+      "expect": "五个工作日内"
     },
     {
-      "id": "training-03",
-      "doc": "培训与职业发展制度.md",
-      "question": "公司有哪两条晋升通道？",
-      "golden_passage": "公司实行管理序列和专业序列双通道晋升",
-      "expect": "管理序列和专业序列"
+      "id": "travel-07",
+      "doc": "差旅与报销管理规定（新旧标准对照）.md",
+      "category": "条件",
+      "question": "单笔报销超过多少钱需要附发票原件？",
+      "golden_passage": "单笔金额超过两千元的报销，须附发票原件供财务查验",
+      "expect": "超过两千元"
+    },
+    {
+      "id": "security-01",
+      "doc": "信息安全管理制度（IT部起草）.md",
+      "category": "单跳",
+      "question": "公司账号密码需要多长时间更换一次？",
+      "golden_passage": "员工账号密码须每九十天更换一次",
+      "expect": "每九十天"
+    },
+    {
+      "id": "security-02",
+      "doc": "信息安全管理制度（IT部起草）.md",
+      "category": "数值",
+      "question": "公司数据按密级分为几个等级？",
+      "golden_passage": "公司数据分为绝密、机密、内部、公开四个等级",
+      "expect": "四个等级"
+    },
+    {
+      "id": "security-03",
+      "doc": "信息安全管理制度（IT部起草）.md",
+      "category": "条件",
+      "question": "机密及以上等级的数据可以外发吗？",
+      "golden_passage": "机密及以上等级的数据禁止通过互联网外发",
+      "expect": "禁止外发"
+    },
+    {
+      "id": "security-04",
+      "doc": "信息安全管理制度（IT部起草）.md",
+      "category": "单跳",
+      "question": "员工要接入公司 VPN，需要什么条件？",
+      "golden_passage": "接入公司 VPN 须提交申请并签署承诺书",
+      "expect": "提交申请并签署承诺书"
+    },
+    {
+      "id": "security-05",
+      "doc": "信息安全管理制度（IT部起草）.md",
+      "category": "单跳",
+      "question": "发现数据泄露，多久内要上报信息安全负责人？",
+      "golden_passage": "发现数据泄露须在两小时内上报信息安全负责人",
+      "expect": "两小时内"
+    },
+    {
+      "id": "purchase-01",
+      "doc": "采购与合同管理暂行办法.md",
+      "category": "数值",
+      "question": "单笔采购金额在二十万元及以上，需要谁审批？",
+      "golden_passage": "单笔采购金额二十万元及以上的，须报总经理审批并组织招标",
+      "expect": "总经理审批并组织招标"
+    },
+    {
+      "id": "purchase-02",
+      "doc": "采购与合同管理暂行办法.md",
+      "category": "数值",
+      "question": "合同金额在多少以上需要法务审核？",
+      "golden_passage": "合同金额在十万元以上的，须经法务审核",
+      "expect": "十万元以上"
+    },
+    {
+      "id": "purchase-03",
+      "doc": "采购与合同管理暂行办法.md",
+      "category": "单跳",
+      "question": "公司采购需要至少向几家供应商询价比价？",
+      "golden_passage": "采购须至少向两家供应商询价比价",
+      "expect": "至少两家"
+    },
+    {
+      "id": "purchase-04",
+      "doc": "采购与合同管理暂行办法.md",
+      "category": "单跳",
+      "question": "采购到货后的验收需要哪些人参与？",
+      "golden_passage": "采购验收须由采购经办人、使用部门与资产管理员三方共同参与",
+      "expect": "采购经办人、使用部门、资产管理员"
+    },
+    {
+      "id": "asset-01",
+      "doc": "办公用品及固定资产管理制度.md",
+      "category": "单跳",
+      "question": "什么样的物品属于固定资产？",
+      "golden_passage": "固定资产是指单价在两千元以上或使用年限在一年以上的物品",
+      "expect": "单价 2000 元以上或使用年限 1 年以上"
+    },
+    {
+      "id": "asset-02",
+      "doc": "办公用品及固定资产管理制度.md",
+      "category": "单跳",
+      "question": "固定资产多久盘点一次？",
+      "golden_passage": "固定资产每半年盘点一次",
+      "expect": "每半年一次"
+    },
+    {
+      "id": "asset-03",
+      "doc": "办公用品及固定资产管理制度.md",
+      "category": "单跳",
+      "question": "公司资产的编号规则是什么？",
+      "golden_passage": "资产编号规则为部门代码加购置年份加三位序列号",
+      "expect": "部门代码+购置年份+三位序列号"
+    },
+    {
+      "id": "exit-01",
+      "doc": "离职交接与补偿细则（修订中）.md",
+      "category": "单跳",
+      "question": "员工提出离职，需要提前多少天书面通知公司？",
+      "golden_passage": "员工提出离职须提前三十天书面通知公司，试用期内提前三天书面通知",
+      "expect": "提前三十天，试用期提前三天"
+    },
+    {
+      "id": "exit-02",
+      "doc": "离职交接与补偿细则（修订中）.md",
+      "category": "单跳",
+      "question": "经济补偿金每满一年工作年限支付几个月工资？",
+      "golden_passage": "经济补偿按劳动者在本单位工作的年限，每满一年支付一个月工资",
+      "expect": "一个月工资"
+    },
+    {
+      "id": "exit-03",
+      "doc": "离职交接与补偿细则（修订中）.md",
+      "category": "条件",
+      "question": "工作满六个月不满一年的离职员工，经济补偿怎么算？",
+      "golden_passage": "六个月以上不满一年的，按一年计算；不满六个月的，支付半个月工资",
+      "expect": "按一年计算"
+    },
+    {
+      "id": "exit-04",
+      "doc": "离职交接与补偿细则（修订中）.md",
+      "category": "条件",
+      "question": "员工主动辞职，公司需要支付经济补偿金吗？",
+      "golden_passage": "员工主动辞职（非公司原因）的，公司不支付经济补偿金",
+      "expect": "不需要"
+    },
+    {
+      "id": "exit-05",
+      "doc": "离职交接与补偿细则（修订中）.md",
+      "category": "条件",
+      "question": "签署竞业限制协议的员工，离职后补偿金标准是多少？",
+      "golden_passage": "竞业限制补偿金标准为离职前十二个月平均工资的30%，按月支付，期限不超过两年",
+      "expect": "前十二个月平均工资的 30%，按月支付，最长两年"
+    },
+    {
+      "id": "exit-06",
+      "doc": "离职交接与补偿细则（修订中）.md",
+      "category": "单跳",
+      "question": "离职证明在交接验收完成后多久开具？",
+      "golden_passage": "离职证明在交接验收完成后三个工作日内开具",
+      "expect": "交接验收完成后三个工作日内"
+    },
+    {
+      "id": "cross-01",
+      "doc": "离职交接与补偿细则（修订中）.md",
+      "category": "跨文档",
+      "question": "员工离职时，未休的年假按什么标准折算补偿？",
+      "golden_passage": "离职时未休年假按日工资的三倍折算补偿",
+      "expect": "按日工资三倍折算"
+    },
+    {
+      "id": "cross-02",
+      "doc": "信息安全管理制度（IT部起草）.md",
+      "category": "跨文档",
+      "question": "员工办理离职，系统账号什么时候被回收？",
+      "golden_passage": "员工离职当日须回收其全部账号与权限",
+      "expect": "离职当日"
+    },
+    {
+      "id": "cross-03",
+      "doc": "考勤与休假管理办法_V4.2_最终版.md",
+      "category": "跨文档",
+      "question": "加班费的日工资是怎么折算出来的？",
+      "golden_passage": "日工资按基本工资÷21.75 天折算",
+      "expect": "基本工资÷21.75"
+    },
+    {
+      "id": "cross-04",
+      "doc": "办公用品及固定资产管理制度.md",
+      "category": "跨文档",
+      "question": "员工离职或调岗时，办公资产要怎么处理？",
+      "golden_passage": "员工离职或调岗的，须办理资产移交",
+      "expect": "办理资产移交"
+    }
+  ],
+  "reject_cases": [
+    {
+      "id": "reject-01",
+      "doc": null,
+      "question": "食堂卤肉饭定价几何",
+      "expect": "no_answer"
+    },
+    {
+      "id": "reject-02",
+      "doc": null,
+      "question": "麻辣香锅牛蛙煲仔饭",
+      "expect": "no_answer"
+    },
+    {
+      "id": "reject-03",
+      "doc": null,
+      "question": "海鲜自助餐厅营业到几点",
+      "expect": "no_answer"
     }
   ]
 }

@@ -175,6 +175,27 @@ async def run_case(judge: LLMJudge, case: dict) -> dict:
     }
 
 
+async def run_reject_case(case: dict) -> dict:
+    """拒答题：检索 -> 生成。期望 no_answer（资料里没有答案）。
+
+    RAGAS 四指标只度量"可答题"的召回与生成质量，衡量不了"正确地不知道"，
+    所以拒答题单独算 correct rejection（拒答准确率），不掺进四指标均值。
+    """
+    chunks = await retrieve(case["question"])
+    numbered = [{**c, "no": i} for i, c in enumerate(chunks, start=1)]
+    llm = get_llm_provider()
+    result = await llm.generate(case["question"], numbered)
+    no_answer = result.no_answer or NO_ANSWER_SENTINEL in result.answer
+    return {
+        "id": case["id"],
+        "question": case["question"],
+        "answer": result.answer[:80],
+        "retrieved": len(chunks),
+        "no_answer": no_answer,
+        "correct": no_answer,  # 期望拒答且实际拒答 = 正确
+    }
+
+
 def aggregate(cases: list[dict]) -> dict:
     keys = ["context_precision", "context_recall", "faithfulness", "answer_relevancy"]
     n = len(cases)
@@ -182,6 +203,16 @@ def aggregate(cases: list[dict]) -> dict:
     means["no_answer_rate"] = round(sum(1 for c in cases if c["no_answer"]) / n, 4)
     means["questions"] = n
     return means
+
+
+def aggregate_rejects(rejects: list[dict]) -> dict:
+    n = len(rejects)
+    if n == 0:
+        return {"reject_accuracy": None, "reject_cases": 0}
+    return {
+        "reject_accuracy": round(sum(1 for r in rejects if r["correct"]) / n, 4),
+        "reject_cases": n,
+    }
 
 
 async def main() -> None:
@@ -192,10 +223,12 @@ async def main() -> None:
     judge = LLMJudge()
     try:
         results = [await run_case(judge, case) for case in golden["cases"]]
+        rejects = [await run_reject_case(case) for case in golden.get("reject_cases", [])]
     finally:
         await judge.aclose()
 
     agg = aggregate(results)
+    agg_rej = aggregate_rejects(rejects)
     report = {
         "label": os.getenv("LABEL", make_label()),
         "config": {
@@ -206,8 +239,9 @@ async def main() -> None:
             "LLM_BACKEND": os.getenv("LLM_BACKEND", "mock"),
             "department": golden["meta"]["department"],
         },
-        "metrics": agg,
+        "metrics": {**agg, **agg_rej},
         "per_case": results,
+        "reject_cases": rejects,
     }
 
     out = os.getenv("REPORT_JSON") or f"eval_reports/run_{int(time.time())}.json"
@@ -218,11 +252,18 @@ async def main() -> None:
           f"context_recall={agg['context_recall']}  "
           f"faithfulness={agg['faithfulness']}  "
           f"answer_relevancy={agg['answer_relevancy']}  "
-          f"no_answer_rate={agg['no_answer_rate']}")
+          f"no_answer_rate={agg['no_answer_rate']}  "
+          f"reject_accuracy={agg_rej['reject_accuracy']}  "
+          f"(可答 {agg['questions']} 题 + 拒答 {agg_rej['reject_cases']} 题)")
     for c in results:
         flag = "NO-ANSWER" if c["no_answer"] else "          "
         print(f"  {c['id']:14} cp={c['context_precision']:.2f} cr={c['context_recall']:.2f} "
               f"fa={c['faithfulness']:.2f} ar={c['answer_relevancy']:.2f} {flag} {c['question'][:24]}")
+    if rejects:
+        print("拒答题：")
+        for r in rejects:
+            flag = "拒答正确" if r["correct"] else "漏答/误答"
+            print(f"  {r['id']:12} {flag}  {r['question'][:28]}  ->  {r['answer'][:40]}")
     print(f"报告已写入 {out}")
 
 
