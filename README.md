@@ -175,6 +175,16 @@ cd backend
 - 一个 `SparseIndex` 接口按数据库类型返回实现，延续"开发/生产配置分离、代码零改动"。
 - 中文 jieba 分词空格拼接入索引，召回语义与旧 BM25 对齐（回归评测 4 指标不退化）。
 
+## 容错重试（W9）
+
+LLM / Embedding / Rerank 三个外部依赖统一接入**可恢复错误重试**，上游抖动不打断问答：
+
+- 只重试瞬时故障：HTTP 429 / 5xx / 网络层错误（超时、连接重置）；4xx（400/401/422）**不重试**——重放必失败，白花钱。
+- 指数退避 + 抖动：`base·2^n × (0.8~1.2)` 防重试风暴；429 优先遵循服务端 `Retry-After`（按上限封顶）。
+- 重试耗尽抛错后自动落进既有 502 兜底（`UPSTREAM_ERROR` / `UPSTREAM_UNAVAILABLE`），与 W6 错误分层无缝衔接，零新增异常路径。
+- **流式 SSE 刻意不重试**：内容已逐段吐给用户，重放会重复输出。
+- 测试用 httpx.MockTransport 模拟上游故障（不花 API），7 个用例覆盖：500 重试成功 / 400 不重试 / 503 耗尽抛错 / 连接拒绝重试 / 嵌入与重排同样走重试 / Retry-After 封顶。
+
 ## 目录结构
 
 ```
@@ -209,3 +219,4 @@ cd backend
 - [x] W6 切真实模型：bge-m3 嵌入 + bge-reranker 重排（SiliconFlow）+ 重跑真实评测
 - [x] W6 生产化验收：Docker 全栈（Postgres + Milvus standalone + Celery）+ 数据重灌 + 全链路 E2E
 - [x] W8 检索性能：关键词检索从全表 + 内存 BM25 换成数据库倒排索引（FTS5 / PG tsvector 双实现）
+- [x] W9 容错重试：LLM/Embedding/Rerank 统一重试策略（429/5xx/网络错误重试，指数退避+抖动，SSE 刻意不重试）
