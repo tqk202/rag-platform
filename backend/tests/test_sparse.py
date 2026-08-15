@@ -119,3 +119,16 @@ async def test_keyword_empty_or_no_match(client):
     assert await _search("   ") == []
     assert await _search("？？？") == []
     assert await _search("完全无关的词语") == []
+
+
+def test_pg_ts_query_uses_websearch_format():
+    """生产 PG 路径：_ts_query 输出 websearch 语法（词间 OR、不加引号）。
+
+    to_tsquery 对「单引号中文词 + OR」报 syntax error，必须用 websearch
+    语法生成 '一线' | '城市'（生产踩坑回归测试）。
+    """
+    from app.services.sparse_service import PostgresTSVIndex
+
+    idx = PostgresTSVIndex()
+    assert idx._ts_query("一线 城市 出差") == "一线 OR 城市 OR 出差"
+    assert "'" not in idx._ts_query("一线 城市")  # 不输出单引号，避免 to_tsquery 解析 bug

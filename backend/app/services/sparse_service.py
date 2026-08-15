@@ -145,8 +145,11 @@ class PostgresTSVIndex(SparseIndex):
         self._ensured = True
 
     def _ts_query(self, tokens: str) -> str:
-        # to_tsquery 语法：单引号括词避免保留字冲突，词间 OR 召回广
-        return " OR ".join(f"'{t}'" for t in tokens.split())
+        # websearch_to_tsquery 语法：对输入更宽容。
+        # 注意不能用 to_tsquery + 单引号括中文词：'一线' OR '城市' 在 PG 会报
+        # syntax error（中文词经 simple 配置解析后组合 OR 触发解析 bug），
+        # 实测 websearch_to_tsquery('simple', '一线 OR 城市') 正确生成 '一线' | '城市'。
+        return tokens.replace(" ", " OR ")
 
     async def add(self, db, chunk_id: int, department: str, content: str) -> None:
         await self.ensure(db)
@@ -179,9 +182,9 @@ class PostgresTSVIndex(SparseIndex):
             await db.execute(
                 text(
                     f"SELECT chunk_id, ts_rank(to_tsvector('simple', tokens), "
-                    f"to_tsquery('simple', :q)) AS score FROM {FTS_TABLE} "
+                    f"websearch_to_tsquery('simple', :q)) AS score FROM {FTS_TABLE} "
                     f"WHERE to_tsvector('simple', tokens) @@ "
-                    f"to_tsquery('simple', :q) AND department = :dept "
+                    f"websearch_to_tsquery('simple', :q) AND department = :dept "
                     f"ORDER BY score DESC LIMIT :limit"
                 ),
                 {"q": q, "dept": department, "limit": top_k},
