@@ -59,7 +59,7 @@ from app.services.vector_service import COLLECTION_NAME, vector_store  # noqa: E
 
 settings = get_settings()
 
-DEMO_DOCS = sorted(Path("demo_docs").glob("*.txt"))
+DEMO_DOCS = sorted(Path("demo_docs").glob("*.md"))
 GOLDEN_PATH = Path("eval_data/golden_set.json")
 
 

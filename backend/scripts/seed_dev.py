@@ -38,7 +38,7 @@ USERS = [
     ("member_hr", Role.member, "hr"),
 ]
 
-DEMO_DOCS = sorted(Path("demo_docs").glob("*.txt"))
+DEMO_DOCS = sorted(Path("demo_docs").glob("*.md"))
 
 
 async def main() -> None:
