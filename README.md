@@ -71,11 +71,11 @@ docker compose exec backend python scripts/seed_dev.py
 - **异步管线**：`INGESTION_MODE=async`，上传接口只投递 Celery 任务到 Redis 队列，worker 后台处理，前端轮询状态——接口秒回、大文档不卡（实测：828 字节文档 worker 2 秒处理完 pending→ready）。
 - **SSE 流式反代**：nginx 必须 `proxy_buffering off` + `proxy_http_version 1.1` + 清空 `Connection` 头，否则回答会等整段结束才一次性到达（实测：经 nginx 43 个 delta 逐字推送）。
 - **密钥不进镜像**：`backend/.dockerignore` 排除 `.env`/测试/本地库，真实 key 只经 compose `env_file` 在**运行时**注入——镜像可安全分发。
-- **双容器共享文件卷**：backend 与 worker 都挂载 `./backend:/app`，上传落盘的文件 worker 能读到同一份。
+- **双容器共享上传目录**：backend 与 worker 共用 `uploads_data` 命名卷（`/app/data/uploads`），上传落盘的文件 worker 能读到同一份；容器以**非 root** 用户运行，去掉源码 bind-mount（生产正确形态，代价是改代码需重建镜像）。
 - **健康检查依赖链**：etcd（`etcdctl`）+ MinIO（curl）健康 → Milvus（curl `/healthz`）健康 → backend 才启动。**实跑踩坑**：etcd 默认只监听 localhost，Milvus 在容器网络里连不上，必须 `command: etcd -listen-client-urls=http://0.0.0.0:2379 ...` 显式监听。
 - **境内网络**：Docker Hub 直连超时，`~/.docker/daemon.json` 配置 `registry-mirrors`；构建阶段 Dockerfile 里也配了 pip 清华源 + npm 阿里镜像（否则 pip 直连 PyPI 卡 20 分钟+）。
 
-**W7 实跑验收（全链路 E2E 通过）**：8 容器全健康 → 生产 seed 灌入 5 文档 / 10 切片（真实 bge-m3，1024 维向量入 PostgreSQL + Milvus）→ 注册/登录 → SSE 问答（真实 DeepSeek + 引文）→ 会话 → 改密（旧密码即失效）→ 越权防护（member 删文档 403 / admin 200）→ 删除联动清双存储。
+**W7 实跑验收（全链路 E2E 通过）**：8 容器全健康 → 生产 seed 灌入 5 份企业级文档 / 43 切片（真实 bge-m3，1024 维向量入 PostgreSQL + Milvus）→ 注册/登录 → SSE 问答（真实 DeepSeek + 引文）→ 会话 → 改密（旧密码即失效）→ 越权防护（member 删文档 403 / admin 200）→ 删除联动清双存储。企业级加固后重跑：3 个表格/补偿类问题真实 LLM 全部带引文答对。
 
 ## 轻量开发模式（无需 Docker，Windows 友好）
 
@@ -154,7 +154,7 @@ cd backend
 - **API 层输入校验**：`/chat` 空问题/纯空格直接 `422`——API 是最后一道闸，
   不能只信前端，省下每次白烧的 LLM 调用。
 - **7 个边界测试**（`tests/test_edge_cases.py`）：坏扩展名 / 空文件 / 超大小 /
-  空问题 / LLM 挂了 502 / SSE 错误事件 / 正常路径回归，全量 29 测试通过。
+  空问题 / LLM 挂了 502 / SSE 错误事件 / 正常路径回归。企业级加固后**全量 105 测试通过 + 1 跳过**（真实 Redis 依赖的用例本地无 Redis 时跳过）。
 
 ## 文档版本管理（W6）
 
@@ -203,6 +203,20 @@ W9 补的是「在线问答路径」的重试；W10 补「离线入库路径」�
 - **流式配合**：命中时整个回答一次推完（秒回），未命中照常流式、结束后回填缓存。
 - **KV 可插拔**：redis（生产）/ memory（测试），沿用 W8 SparseIndex 的思路；全部读写 fail-open——缓存是优化不是依赖，Redis/Milvus 挂了问答照常走。
 
+## 企业级加固（P1/P2 工程化）
+
+面向「可交付企业级」的一次补强，专治 demo 到生产的四个命门——**数据一致性、安全、责任、质量护栏**：
+
+- **跨存储一致性（P1-1）**：Milvus 不参与 DB 事务，崩溃会留孤儿向量。入库顺序固定为「DB 先提交 → Milvus 后写 → 置 ready」，失败清残留；新增**对账任务**（admin 端点 + Celery）以 DB 为准清孤儿向量、报告缺向量——外部存储偏差可收敛，不留"幽灵数据"。
+- **安全纵深（P1-3）**：JWT 加 jti 登出**黑名单**（令牌立即失效）；登录按「用户名+IP」令牌桶限流防爆破（超限 429+Retry-After）；生产环境占位 `SECRET_KEY` 直接拒绝启动。
+- **责任可追溯（P1-5）**：`audit_logs` 记录 谁/何时/对什么做了什么，与业务**同事务**提交；admin 按操作人/动作分页查询——能删数据不留痕的系统进不了企业。
+- **成本与质量护栏（P1-6 / P2-6）**：检索切片按 token 预算动态截断（顺带修掉重排关闭时 20 条全进 LLM 的 bug）+ `max_tokens` 输出上限；CI 每次提交离线跑黄金集评测，与 committed 基线对比**质量回退即 CI 红**——质量不是上线时测一次，是每次提交都在守。
+- **多轮对话（P2-1）**：最近几轮历史喂给 LLM，追问（"那上限呢？"）才有上下文；多轮请求不进回答缓存（含上下文，缓存会答非所问）。
+- **生产部署（P1-4）**：后端多阶段 + **非 root** 镜像、全服务 `restart` + 资源限制、backend 健康检查、uploads 命名卷（去掉源码 bind-mount）、CORS 白名单配置化。
+- **真实企业文档**：演示文档升级为带制度编号 / 多级标题 / 参数表格的企业级 Markdown（每份 8-9 切片，触发 Markdown 标题感知切分），黄金评测集跟随、基准不漂移。
+
+**生产踩坑（都是只会在生产暴露的 bug）**：①PG 中文检索 `to_tsquery('simple', "'一线' OR '城市'")` 报 syntax error（SQLite 路径无恙）→ 改 `websearch_to_tsquery`；②seed 二次灌库撞 `chunks_fts` 主键（FTS 表不在 ORM 元数据里，drop_all 删不到）→ 补显式清稀疏索引。
+
 ## 目录结构
 
 ```
@@ -239,3 +253,7 @@ W9 补的是「在线问答路径」的重试；W10 补「离线入库路径」�
 - [x] W8 检索性能：关键词检索从全表 + 内存 BM25 换成数据库倒排索引（FTS5 / PG tsvector 双实现）
 - [x] W9 容错重试：LLM/Embedding/Rerank 统一重试策略（429/5xx/网络错误重试，指数退避+抖动，SSE 刻意不重试）
 - [x] W10 入库重试：文档处理失败自动重试（瞬时/永久错误分类）+ 失败原因落库 + 手动重试接口
+- [x] W11 回答缓存：语义缓存热问题秒回（Milvus 问句向量 + KV 负载）+ 部门版本号失效 + 权限隔离
+- [x] P1 企业级加固：跨存储一致性对账 + 认证安全（登出黑名单/登录防爆破/弱密钥拦截）+ 审计日志 + 上下文预算 + 非 root 部署
+- [x] P2 迭代优化：多轮对话进生成 + Markdown 标题感知切片 + CI 评测护栏
+- [x] 演示文档企业化：制度编号/多级标题/参数表格的 .md + 黄金评测集跟随
