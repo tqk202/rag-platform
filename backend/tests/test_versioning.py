@@ -135,3 +135,38 @@ async def test_version_update_visible_in_list(client):
     doc = resp.json()["items"][0]
     assert doc["file_name"] == "年假制度.txt"
     assert doc["version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_duplicate_filename_rejected_by_constraint(client):
+    """P1-2 并发防线：同部门同文件名唯一约束，DB 层拦截重复建档。
+
+    绕过接口直接插两条同 (department, file_name)，第二条必须被约束拒绝。
+    """
+    import pytest as _pytest
+    from sqlalchemy.exc import IntegrityError
+
+    uid = await _seed_user("mgr_hr", "hr", Role.manager)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Document(
+                title="制度.txt", file_name="制度.txt", file_path="data/uploads/x",
+                content_hash="h1", department="hr", owner_id=uid,
+            )
+        )
+        await db.commit()
+        db.add(
+            Document(
+                title="制度.txt", file_name="制度.txt", file_path="data/uploads/y",
+                content_hash="h2", department="hr", owner_id=uid,
+            )
+        )
+        with _pytest.raises(IntegrityError):
+            await db.commit()
+        await db.rollback()
+
+    async with AsyncSessionLocal() as db:
+        rows = list(
+            (await db.scalars(select(Document).where(Document.file_name == "制度.txt"))).all()
+        )
+    assert len(rows) == 1  # 只有一条，约束生效

@@ -2,7 +2,7 @@
 import enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, Integer, String
+from sqlalchemy import Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -20,6 +20,11 @@ class DocStatus(str, enum.Enum):
 
 class Document(Base, TimestampMixin):
     __tablename__ = "documents"
+
+    # P1-2 并发防线：同部门同文件名唯一，DB 层兜底并发重复上传竞态
+    __table_args__ = (
+        UniqueConstraint("department", "file_name", name="uq_doc_department_file"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255))

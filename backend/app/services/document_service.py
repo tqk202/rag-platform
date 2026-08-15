@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -181,7 +182,23 @@ async def upload_document(
         owner_id=user.id,
     )
     db.add(doc)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # P1-2 并发竞态：两个请求同时上传同名文档，唯一约束兜底。
+        # 回滚后按"已存在"重走升版/去重分支，而不是静默建重复文档。
+        await db.rollback()
+        existing = await db.scalar(
+            select(Document).where(
+                Document.file_name == filename,
+                Document.department == target_dept,
+            )
+        )
+        if existing is None:
+            raise AppError(f"「{filename}」上传冲突，请重试")
+        if existing.content_hash == content_hash:
+            raise AppError(f"该文档已存在：{existing.file_name}")
+        return await _update_document_version(db, existing, content, content_hash, filename)
     await db.refresh(doc)
     await answer_cache.bump_version(target_dept)  # W11: 知识库已变，旧回答缓存作废
 
