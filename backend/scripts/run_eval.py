@@ -51,6 +51,7 @@ from app.models import Base  # noqa: E402
 from app.models.document import DocStatus, Document  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.services import rerank_service, retrieval_service  # noqa: E402
+from app.services.sparse_service import get_sparse_index  # noqa: E402
 from app.services.evaluator import LLMJudge, evaluate_case  # noqa: E402
 from app.services.ingestion_service import compute_content_hash, process_document  # noqa: E402
 from app.services.llm_service import NO_ANSWER_SENTINEL, get_llm_provider  # noqa: E402
@@ -77,13 +78,15 @@ def make_label() -> str:
 
 
 async def reset_state() -> None:
-    """重建评测库：SQLite 表 + Milvus 集合都清空重来。"""
+    """重建评测库：SQLite 表 + Milvus 集合 + 稀疏索引都清空重来。"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     if vector_store.client.has_collection(COLLECTION_NAME):
         vector_store.client.drop_collection(COLLECTION_NAME)
-    logger.info("评测库已重置（SQLite + Milvus 集合 %s）", COLLECTION_NAME)
+    async with AsyncSessionLocal() as db:
+        await get_sparse_index().drop(db)  # FTS 表不在 ORM 元数据里，需显式清（防多进程评测残留）
+    logger.info("评测库已重置（SQLite + Milvus 集合 %s + 稀疏索引）", COLLECTION_NAME)
 
 
 async def ingest_demo_docs() -> None:
