@@ -28,6 +28,7 @@ from app.models import Base  # noqa: E402
 from app.models.document import DocStatus, Document  # noqa: E402
 from app.models.user import Role, User  # noqa: E402
 from app.services.ingestion_service import compute_content_hash, process_document  # noqa: E402
+from app.services.sparse_service import get_sparse_index  # noqa: E402
 from app.services.vector_service import COLLECTION_NAME, vector_store  # noqa: E402
 
 PASSWORD = "123456"
@@ -42,15 +43,19 @@ DEMO_DOCS = sorted(Path("demo_docs").glob("*.md"))
 
 
 async def main() -> None:
-    # 1. 重建表 + 清空 Milvus 集合
+    # 1. 重建表 + 清空 Milvus 集合 + 清稀疏索引
+    #    稀疏索引表（chunks_fts）不在 ORM 元数据里，drop_all 不会删——
+    #    不显式清会导致二次灌库撞 chunk_id 唯一约束（与 94e2599 评测同源问题）
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     if vector_store.client.has_collection(COLLECTION_NAME):
         vector_store.client.drop_collection(COLLECTION_NAME)
+    async with AsyncSessionLocal() as db:
+        await get_sparse_index().drop(db)
     settings = get_settings()
     db_kind = "PostgreSQL" if settings.DATABASE_URL.startswith("postgres") else "SQLite"
-    print(f"数据已重置（{db_kind} 表 + Milvus 集合）")
+    print(f"数据已重置（{db_kind} 表 + Milvus 集合 + 稀疏索引）")
 
     # 2. 三角色账号（密码统一 123456）
     async with AsyncSessionLocal() as db:
