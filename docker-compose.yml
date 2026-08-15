@@ -5,6 +5,11 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: rag-postgres
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     environment:
       POSTGRES_USER: rag
       POSTGRES_PASSWORD: rag
@@ -23,6 +28,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: rag-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     healthcheck:
@@ -35,6 +41,7 @@ services:
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
     container_name: rag-etcd
+    restart: unless-stopped
     # 必须监听 0.0.0.0:2379 并通告 etcd:2379，否则只绑 localhost，milvus 连不上
     command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls=http://0.0.0.0:2379 --data-dir /etcd
     environment:
@@ -53,6 +60,7 @@ services:
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     container_name: rag-minio
+    restart: unless-stopped
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -71,7 +79,12 @@ services:
   milvus:
     image: milvusdb/milvus:v2.4.15
     container_name: rag-milvus
+    restart: unless-stopped
     command: ["milvus", "run", "standalone"]
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     security_opt:
       - seccomp:unconfined
     environment:
@@ -98,6 +111,11 @@ services:
   backend:
     build: ./backend
     container_name: rag-backend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     # 模型 key 等真实配置放 backend/.env（gitignored，不进镜像），运行时注入
     env_file:
       - .env
@@ -116,8 +134,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
+      - uploads_data:/app/data/uploads
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,6 +154,11 @@ services:
   worker:
     build: ./backend
     container_name: rag-worker
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     env_file:
       - .env
       - ./backend/.env
@@ -144,7 +173,7 @@ services:
       RERANKER_BACKEND: api
       LLM_BACKEND: api
     volumes:
-      - ./backend:/app
+      - uploads_data:/app/data/uploads
     command: celery -A app.tasks.celery_app worker --loglevel=info
     depends_on:
       postgres:
@@ -156,6 +185,7 @@ services:
   frontend:
     build: ./frontend
     container_name: rag-frontend
+    restart: unless-stopped
     ports:
       - "5173:80"
     depends_on:
@@ -166,3 +196,4 @@ volumes:
   etcd_data:
   minio_data:
   milvus_data:
+  uploads_data:

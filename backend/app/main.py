@@ -46,7 +46,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 开发阶段放开；上线前收紧为前端域名
+    # P1-4：CORS 白名单配置化（默认 * 开发放开，生产设前端域名）
+    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

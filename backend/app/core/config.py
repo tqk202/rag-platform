@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    # P1-4 CORS 白名单：逗号分隔；生产设为前端域名（如 http://localhost:5173）
+    CORS_ORIGINS: str = "*"
 
     # 基础设施
     DATABASE_URL: str = "postgresql+asyncpg://rag:rag@localhost:5432/rag"
