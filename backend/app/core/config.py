@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # 文档处理（W1）
     CHUNK_SIZE: int = 500            # 每块字符数，W4 消融实验会调它
     CHUNK_OVERLAP: int = 50          # 块间重叠，避免语义被切断
+    TEXT_CLEANING: str = "none"      # none(原样入库) | basic(保守清洗:页眉残留/全角空格/行尾空白)
     EMBEDDING_BACKEND: str = "mock"  # mock(当前) | api | local
     EMBEDDING_DIM: int = 1024        # bge-m3 输出维度
     INGESTION_MODE: str = "async"    # async(Celery生产) | inline(开发直接处理)

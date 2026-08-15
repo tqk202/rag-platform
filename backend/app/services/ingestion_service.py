@@ -21,6 +21,7 @@ from app.models.chunk import Chunk
 from app.models.document import DocStatus, Document
 from app.services import embedding_service, vector_service
 from app.services.chunker import chunk_markdown, chunk_text
+from app.services.cleaner import clean_text, should_clean
 from app.services.parsers import parse_document
 from app.services.sparse_service import get_sparse_index
 
@@ -56,6 +57,11 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
     try:
         # 1. 解析：文件 -> 纯文本
         text = parse_document(doc.file_path)
+
+        # 1.5 可选清洗（TEXT_CLEANING=basic）：去页眉页脚残留/全角空格/行尾空白。
+        # 默认 none 原样入库——W4 评测的脏文档故意不清洗，验证检索抗噪能力
+        if should_clean():
+            text = clean_text(text)
 
         # 2. 切片：长文本 -> 小块（Markdown 走标题感知切分，保留章节上下文）
         if Path(doc.file_path).suffix.lower() == ".md":
