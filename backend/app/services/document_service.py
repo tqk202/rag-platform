@@ -13,7 +13,7 @@ from app.models.document import DocStatus, Document
 from app.models.user import Role, User
 from app.schemas.common import Page
 from app.schemas.document import ChunkOut, DocumentDetail, DocumentOut, UploadResponse
-from app.services import answer_cache
+from app.services import answer_cache, audit_service
 from app.services.ingestion_service import compute_content_hash
 from app.services.sparse_service import get_sparse_index
 from app.services.vector_service import vector_store
@@ -99,7 +99,12 @@ async def _finish_processing(db: AsyncSession, doc: Document) -> UploadResponse:
 
 
 async def _update_document_version(
-    db: AsyncSession, doc: Document, content: bytes, content_hash: str, filename: str
+    db: AsyncSession,
+    user: User,
+    doc: Document,
+    content: bytes,
+    content_hash: str,
+    filename: str,
 ) -> UploadResponse:
     """同文件名重传 = 版本更新：版本 +1，先清旧切片再灌新内容。"""
     if doc.content_hash == content_hash:
@@ -120,6 +125,11 @@ async def _update_document_version(
     doc.version += 1
     doc.chunk_count = 0
     doc.status = DocStatus.pending
+    await audit_service.record(
+        db, user, "document.update",
+        object_type="document", object_id=doc.id,
+        detail=f"{doc.file_name} 升级到第 {doc.version} 版",
+    )
     await db.commit()
     await db.refresh(doc)
     await answer_cache.bump_version(doc.department)  # W11: 知识库已变，旧回答缓存作废
@@ -157,7 +167,7 @@ async def upload_document(
         )
     )
     if existing is not None:
-        return await _update_document_version(db, existing, content, content_hash, filename)
+        return await _update_document_version(db, user, existing, content, content_hash, filename)
 
     # 新文档：同部门内容去重，同一份内容不重复入库（即使文件名不同）
     dup = await db.scalar(
@@ -183,7 +193,7 @@ async def upload_document(
     )
     db.add(doc)
     try:
-        await db.commit()
+        await db.flush()  # 拿 doc.id 供审计（唯一约束冲突在此抛 IntegrityError）
     except IntegrityError:
         # P1-2 并发竞态：两个请求同时上传同名文档，唯一约束兜底。
         # 回滚后按"已存在"重走升版/去重分支，而不是静默建重复文档。
@@ -198,7 +208,13 @@ async def upload_document(
             raise AppError(f"「{filename}」上传冲突，请重试")
         if existing.content_hash == content_hash:
             raise AppError(f"该文档已存在：{existing.file_name}")
-        return await _update_document_version(db, existing, content, content_hash, filename)
+        return await _update_document_version(db, user, existing, content, content_hash, filename)
+    await audit_service.record(
+        db, user, "document.upload",
+        object_type="document", object_id=doc.id,
+        detail=f"上传 {filename}（{len(content)} 字节）",
+    )
+    await db.commit()
     await db.refresh(doc)
     await answer_cache.bump_version(target_dept)  # W11: 知识库已变，旧回答缓存作废
 
@@ -265,6 +281,11 @@ async def retry_document(
 
     doc.status = DocStatus.pending
     doc.failure_reason = None
+    await audit_service.record(
+        db, user, "document.retry",
+        object_type="document", object_id=doc.id,
+        detail=f"重新提交处理 {doc.file_name}",
+    )
     await db.commit()
     await db.refresh(doc)
     await answer_cache.bump_version(doc.department)  # W11: 重试可能产出新内容，旧回答缓存作废
@@ -284,6 +305,11 @@ async def delete_document(db: AsyncSession, user: User, doc_id: int) -> None:
     # 先删 DB 切片 + 稀疏索引（事实来源），提交后再清 Milvus，残余交给对账
     chunk_ids = await _delete_doc_chunks(db, doc_id)
 
+    await audit_service.record(
+        db, user, "document.delete",
+        object_type="document", object_id=doc.id,
+        detail=f"删除 {doc.file_name}（第 {doc.version} 版）",
+    )
     await db.delete(doc)
     await db.commit()
     await answer_cache.bump_version(doc.department)  # W11: 文档被删，旧回答缓存作废

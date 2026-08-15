@@ -1,12 +1,15 @@
-"""管理端点（仅 admin）：存储对账等运维操作。"""
+"""管理端点（仅 admin）：存储对账、审计日志等运维操作。"""
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import DbSession, require_role
+from app.models.audit import AuditLog
 from app.models.document import Document
 from app.models.user import Role, User
+from app.schemas.audit import AuditLogOut
+from app.schemas.common import Page
 from app.services import reconcile_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -30,3 +33,33 @@ async def reconcile_all(db: DbSession, _guard: AdminGuard) -> dict:
         "total_orphans_cleaned": sum(r["orphans_cleaned"] for r in results),
         "results": results,
     }
+
+
+@router.get("/audit-logs", response_model=Page[AuditLogOut], summary="审计日志（仅管理员）")
+async def list_audit_logs(
+    db: DbSession,
+    _guard: AdminGuard,
+    action: str | None = None,
+    actor_username: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> Page[AuditLogOut]:
+    stmt = select(AuditLog)
+    if action:
+        stmt = stmt.where(AuditLog.action == action)
+    if actor_username:
+        stmt = stmt.where(AuditLog.actor_username == actor_username)
+
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    result = await db.execute(
+        stmt.order_by(AuditLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    items = result.scalars().all()
+    return Page(
+        items=[AuditLogOut.model_validate(a) for a in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
