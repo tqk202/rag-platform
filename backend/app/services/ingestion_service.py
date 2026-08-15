@@ -1,10 +1,18 @@
 """文档处理管线：解析 -> 切片 -> 向量化 -> 入库。
 
 W1 核心实现。由 Celery worker（生产）或上传接口 inline（开发）调用。
+
+一致性设计（P1-1）：DB 是事实来源，外部存储（Milvus）不参与事务，
+所以写入顺序固定为「DB 先提交 -> Milvus 后写 -> 置 ready」：
+- 崩溃在 DB 提交前：回滚干净，无残留；
+- 崩溃在 Milvus 写入后：DB 有切片但状态仍是 processing/failed，
+  重试会先清旧切片（幂等重入），Milvus 在插入前也按文档清旧行；
+- Milvus 写入失败：DB 保持事实，残余交给对账任务收敛。
 """
 import hashlib
 import logging
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -22,6 +30,16 @@ settings = get_settings()
 def compute_content_hash(content: bytes) -> str:
     """文件内容 SHA-256，用于去重与版本判断。"""
     return hashlib.sha256(content).hexdigest()
+
+
+async def _clear_doc_chunks(db: AsyncSession, doc_id: int) -> None:
+    """清掉该文档在 DB 里的切片 + 稀疏索引（幂等重入用，不动 Milvus）。"""
+    chunk_ids = list(
+        (await db.scalars(select(Chunk.id).where(Chunk.document_id == doc_id))).all()
+    )
+    if chunk_ids:
+        await get_sparse_index().remove(db, chunk_ids)
+        await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
 
 
 async def process_document(db: AsyncSession, document_id: int) -> None:
@@ -47,7 +65,11 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
         provider = embedding_service.get_embedding_provider()
         vectors = provider.embed_texts(chunks)
 
-        # 4. 入库：切片写入 PostgreSQL + 稀疏索引，向量 + 元数据写入 Milvus
+        # 4. 幂等重入：清掉上次残留的 DB 切片（重试/升版不会留下旧数据）
+        await _clear_doc_chunks(db, doc.id)
+        await db.commit()
+
+        # 5. 切片 + 稀疏索引同事务先提交（DB 是事实来源，状态仍 processing）
         rows: list[dict] = []
         sparse = get_sparse_index()
         for i, content in enumerate(chunks):
@@ -71,17 +93,33 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
                     "vector": vectors[i],
                 }
             )
+        await db.commit()
 
+        # 6. 外部存储后写：先清本档旧行再插入（幂等），失败不影响 DB 事实
+        vector_service.vector_store.delete_by_document(doc.id)
         vector_service.vector_store.insert_chunks(rows)
 
+        # 7. 全部落位后置 ready
         doc.status = DocStatus.ready
         doc.chunk_count = len(chunks)
         await db.commit()
         logger.info("文档 %s 处理完成，切片数 %s", doc.id, len(chunks))
     except Exception as exc:
         await db.rollback()
+        # 失败不留下可检索切片：清掉本次已提交的 DB 切片 + 稀疏索引
+        # （否则失败文档的内容仍能被检索到——P1-1 事实来源不能被污染）
+        try:
+            await _clear_doc_chunks(db, doc.id)
+            await db.commit()
+        except Exception:
+            await db.rollback()
         doc.status = DocStatus.failed
         doc.failure_reason = str(exc)[:500]  # W10 失败原因落库，前端可见
         await db.commit()
+        # 尽力清 Milvus 本档行：DB 已回滚时 Milvus 可能残留孤儿，交给对账任务兜底
+        try:
+            vector_service.vector_store.delete_by_document(doc.id)
+        except Exception:
+            logger.warning("文档 %s 失败后清理 Milvus 残留失败，由对账任务收敛", doc.id)
         logger.exception("文档 %s 处理失败", doc.id)
         raise

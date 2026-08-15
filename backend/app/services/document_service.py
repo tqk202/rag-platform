@@ -60,15 +60,19 @@ async def _read_capped(file) -> bytes:
     return b"".join(parts)
 
 
-async def _delete_doc_chunks(db: AsyncSession, doc_id: int) -> None:
-    """删除文档的所有切片：Milvus 向量 + 稀疏索引 + DB 记录，三存储一致不留幽灵。"""
+async def _delete_doc_chunks(db: AsyncSession, doc_id: int) -> list[int]:
+    """删除文档在 DB 的切片 + 稀疏索引，返回 chunk_ids 供提交后清 Milvus。
+
+    P1-1 一致性：Milvus 不参与事务，改成调用方 commit 后再 best-effort 清理，
+    残余交给对账任务收敛——DB 始终是事实来源。
+    """
     chunk_ids = list(
         (await db.scalars(select(Chunk.id).where(Chunk.document_id == doc_id))).all()
     )
     if chunk_ids:
-        vector_store.delete_by_chunk_ids(chunk_ids)
         await get_sparse_index().remove(db, chunk_ids)
         await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
+    return chunk_ids
 
 
 async def _finish_processing(db: AsyncSession, doc: Document) -> UploadResponse:
@@ -104,8 +108,8 @@ async def _update_document_version(
         # 处理中/待处理的文档不能更新：异步模式下会和新旧处理任务抢数据
         raise AppError(f"「{doc.file_name}」正在处理中，请稍后再更新")
 
-    # 旧切片先清掉（向量 + DB），否则新旧数据混在库里
-    await _delete_doc_chunks(db, doc.id)
+    # 旧切片先清掉（DB + 稀疏索引），否则新旧数据混在库里
+    chunk_ids = await _delete_doc_chunks(db, doc.id)
 
     rel_path = UPLOAD_DIR / f"{content_hash[:16]}_{filename}"
     rel_path.write_bytes(content)
@@ -118,6 +122,11 @@ async def _update_document_version(
     await db.commit()
     await db.refresh(doc)
     await answer_cache.bump_version(doc.department)  # W11: 知识库已变，旧回答缓存作废
+    # Milvus 旧行先清（best-effort），残余交给对账任务收敛
+    try:
+        vector_store.delete_by_chunk_ids(chunk_ids)
+    except Exception:
+        logger.warning("文档 %s 升版后清理旧 Milvus 行失败，由对账任务收敛", doc.id)
 
     result = await _finish_processing(db, doc)
     result.message = f"更新成功，已升级到第 {doc.version} 版"
@@ -255,9 +264,13 @@ async def delete_document(db: AsyncSession, user: User, doc_id: int) -> None:
     if user.role != Role.admin and doc.department != user.department:
         raise PermissionDeniedError("无权删除该文档")
 
-    # 先删向量库（Milvus），再删数据库，保证双存储一致，不留"幽灵"数据
-    await _delete_doc_chunks(db, doc_id)
+    # 先删 DB 切片 + 稀疏索引（事实来源），提交后再清 Milvus，残余交给对账
+    chunk_ids = await _delete_doc_chunks(db, doc_id)
 
     await db.delete(doc)
     await db.commit()
     await answer_cache.bump_version(doc.department)  # W11: 文档被删，旧回答缓存作废
+    try:
+        vector_store.delete_by_chunk_ids(chunk_ids)
+    except Exception:
+        logger.warning("文档 %s 删除后清理 Milvus 行失败，由对账任务收敛", doc.id)

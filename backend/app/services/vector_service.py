@@ -87,5 +87,26 @@ class VectorStore:
         self.client.load_collection(COLLECTION_NAME)
         self.client.delete(collection_name=COLLECTION_NAME, ids=chunk_ids)
 
+    def delete_by_document(self, document_id: int) -> None:
+        """按文档删 Milvus 行（幂等，过滤式删除）。重灌/删除/对账都用它。"""
+        if not self.client.has_collection(COLLECTION_NAME):
+            return
+        self.client.load_collection(COLLECTION_NAME)
+        self.client.delete(
+            collection_name=COLLECTION_NAME, filter=f"document_id == {document_id}"
+        )
+
+    def list_chunk_ids_by_document(self, document_id: int) -> list[int]:
+        """列出该文档在 Milvus 里的所有 chunk_id（对账用）。"""
+        self.ensure_collection()
+        self.client.load_collection(COLLECTION_NAME)
+        rows = self.client.query(
+            collection_name=COLLECTION_NAME,
+            filter=f"document_id == {document_id}",
+            output_fields=["chunk_id"],
+            limit=16384,  # Milvus query 单次上限，按文档切片规模足够
+        )
+        return [r["chunk_id"] for r in rows]
+
 
 vector_store = VectorStore(uri=settings.VECTOR_URI)
