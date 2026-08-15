@@ -12,20 +12,23 @@ os.environ["LLM_BACKEND"] = "mock"
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.db.session import engine
+from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models import Base
+from app.services.sparse_service import get_sparse_index
 from app.services.vector_service import COLLECTION_NAME, vector_store
 
 
 @pytest.fixture(autouse=True)
 async def _reset_state():
-    # 每个用例前重置 SQLite 表 + Milvus 集合，保证用例互相独立
+    # 每个用例前重置 SQLite 表 + Milvus 集合 + 稀疏索引，保证用例互相独立
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     if vector_store.client.has_collection(COLLECTION_NAME):
         vector_store.client.drop_collection(COLLECTION_NAME)
+    async with AsyncSessionLocal() as db:
+        await get_sparse_index().drop(db)  # FTS 表不在 ORM 元数据里，需显式清
     yield
 
 

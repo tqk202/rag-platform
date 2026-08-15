@@ -166,6 +166,15 @@ cd backend
 - 处理中的文档拒绝再次更新，避免异步模式下新旧处理任务抢数据。
 - 3 个版本测试（`tests/test_versioning.py`）验证：升版、旧切片清理、同内容拒绝。
 
+## 检索性能（W8）
+
+关键词检索从「全表扫描 + 应用层 BM25（O(N)）」换成**数据库倒排索引（O(log N)）**：
+
+- 开发/测试/评测：SQLite **FTS5** 虚拟表，`bm25()` 排名。
+- 生产：PostgreSQL **tsvector + GIN 表达式索引**，`ts_rank()` 排序。
+- 一个 `SparseIndex` 接口按数据库类型返回实现，延续"开发/生产配置分离、代码零改动"。
+- 中文 jieba 分词空格拼接入索引，召回语义与旧 BM25 对齐（回归评测 4 指标不退化）。
+
 ## 目录结构
 
 ```
@@ -199,3 +208,4 @@ cd backend
 - [x] W6 版本管理：同文件名重传升版 + 旧切片双存储同步清理
 - [x] W6 切真实模型：bge-m3 嵌入 + bge-reranker 重排（SiliconFlow）+ 重跑真实评测
 - [x] W6 生产化验收：Docker 全栈（Postgres + Milvus standalone + Celery）+ 数据重灌 + 全链路 E2E
+- [x] W8 检索性能：关键词检索从全表 + 内存 BM25 换成数据库倒排索引（FTS5 / PG tsvector 双实现）

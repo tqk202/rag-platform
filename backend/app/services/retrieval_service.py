@@ -13,8 +13,6 @@ W2 核心。检索质量决定 RAG 上限，是本项目的技术主战场。
 import logging
 from typing import Any
 
-import jieba
-from rank_bm25 import BM25Okapi
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,16 +20,12 @@ from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.services import embedding_service, vector_service
+from app.services.sparse_service import get_sparse_index
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 RRF_K = 60  # RRF 平滑常数（标准值），避免分母为 0 并削弱排名靠后结果的贡献
-
-
-def _tokenize(text: str) -> list[str]:
-    """中文分词。BM25 需要词级 token，jieba 对无空格中文做词切分。"""
-    return [w.strip() for w in jieba.lcut(text) if w.strip()]
 
 
 async def vector_search(
@@ -66,26 +60,25 @@ async def vector_search(
 async def keyword_search(
     db: AsyncSession, query: str, department: str, top_k: int
 ) -> list[dict[str, Any]]:
-    """Sparse 召回：BM25 关键词检索，SQL 层按部门过滤。"""
+    """Sparse 召回：数据库倒排索引（SQLite FTS5 / PG tsvector），SQL 层按部门过滤。
+
+    相比旧的「全表 select + 内存 BM25（O(N)）」：全文检索走索引 O(log N)，
+    文档量增长不再线性劣化。只返回至少命中一个查询词的切片（无需再过滤零命中）。
+    """
+    hits = await get_sparse_index().search(db, query, department, top_k)
+    if not hits:
+        return []
+
     stmt = (
         select(Chunk, Document.title)
         .join(Document, Chunk.document_id == Document.id)
-        .where(Document.department == department)
+        .where(Chunk.id.in_([h["chunk_id"] for h in hits]))
     )
-    rows = (await db.execute(stmt)).all()
-    if not rows:
-        return []
+    by_id = {c.id: (c, t) for c, t in (await db.execute(stmt)).all()}
 
-    corpus = [_tokenize(c.content) for c, _ in rows]
-    bm25 = BM25Okapi(corpus)
-    scores = bm25.get_scores(_tokenize(query))
-
-    ranked = sorted(range(len(rows)), key=lambda i: scores[i], reverse=True)
     results: list[dict[str, Any]] = []
-    for i in ranked:
-        if scores[i] <= 0:
-            continue  # 与查询零词命中，直接跳过（这是 no_answer 的检索侧依据）
-        chunk, title = rows[i]
+    for h in hits:
+        chunk, title = by_id[h["chunk_id"]]
         results.append(
             {
                 "chunk_id": chunk.id,
@@ -93,11 +86,9 @@ async def keyword_search(
                 "document_title": title,
                 "content": chunk.content,
                 "page_no": chunk.page_no,
-                "bm25_score": float(scores[i]),
+                "bm25_score": h["score"],
             }
         )
-        if len(results) >= top_k:
-            break
     return results
 
 

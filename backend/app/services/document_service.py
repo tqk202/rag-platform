@@ -13,6 +13,7 @@ from app.models.user import Role, User
 from app.schemas.common import Page
 from app.schemas.document import ChunkOut, DocumentDetail, DocumentOut, UploadResponse
 from app.services.ingestion_service import compute_content_hash
+from app.services.sparse_service import get_sparse_index
 from app.services.vector_service import vector_store
 
 logger = logging.getLogger(__name__)
@@ -59,12 +60,13 @@ async def _read_capped(file) -> bytes:
 
 
 async def _delete_doc_chunks(db: AsyncSession, doc_id: int) -> None:
-    """删除文档的所有切片：Milvus 向量 + DB 记录，保证双存储一致不留幽灵。"""
+    """删除文档的所有切片：Milvus 向量 + 稀疏索引 + DB 记录，三存储一致不留幽灵。"""
     chunk_ids = list(
         (await db.scalars(select(Chunk.id).where(Chunk.document_id == doc_id))).all()
     )
     if chunk_ids:
         vector_store.delete_by_chunk_ids(chunk_ids)
+        await get_sparse_index().remove(db, chunk_ids)
         await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
 
 

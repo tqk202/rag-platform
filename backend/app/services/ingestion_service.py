@@ -13,6 +13,7 @@ from app.models.document import DocStatus, Document
 from app.services import embedding_service, vector_service
 from app.services.chunker import chunk_text
 from app.services.parsers import parse_document
+from app.services.sparse_service import get_sparse_index
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -45,8 +46,9 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
         provider = embedding_service.get_embedding_provider()
         vectors = provider.embed_texts(chunks)
 
-        # 4. 入库：向量 + 元数据写入 Milvus，切片写入 PostgreSQL
+        # 4. 入库：切片写入 PostgreSQL + 稀疏索引，向量 + 元数据写入 Milvus
         rows: list[dict] = []
+        sparse = get_sparse_index()
         for i, content in enumerate(chunks):
             chunk = Chunk(
                 document_id=doc.id,
@@ -56,6 +58,8 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
             )
             db.add(chunk)
             await db.flush()  # 拿到 chunk.id，作为 Milvus 主键
+            # 同步写稀疏索引（同一事务）：正文切片与关键词索引一起提交，失败一起回滚
+            await sparse.add(db, chunk.id, doc.department, content)
             rows.append(
                 {
                     "chunk_id": chunk.id,
