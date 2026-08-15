@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     MAX_CONTEXT_TOKENS: int = 4000   # 输入上下文预算（含问题 + 检索切片 + 提示词）
     MAX_OUTPUT_TOKENS: int = 1024    # 输出上限（max_tokens）
 
+    # 多轮对话（P2-1）：把最近几轮历史喂给 LLM，追问才有上下文
+    MAX_HISTORY_TURNS: int = 6       # 最近 N 轮（每轮 user+assistant 两条）
+    MAX_HISTORY_CHARS: int = 800     # 每条历史内容截断，防上下文污染
+
     # 限流（W5）：LLM 接口每次调用都花钱，防止单用户刷爆 / 被爬虫打
     RATE_LIMIT_RPM: int = 30           # 每用户每分钟允许的 /chat 请求数（token bucket 稳态速率）
 

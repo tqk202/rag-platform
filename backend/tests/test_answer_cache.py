@@ -170,7 +170,7 @@ async def test_chat_second_ask_hits_cache_skips_llm(client, monkeypatch):
     calls = {"n": 0}
 
     class _CountingLLM(MockLLMProvider):
-        async def generate(self, question, chunks):
+        async def generate(self, question, chunks, history=None):
             calls["n"] += 1
             return await super().generate(question, chunks)
 
@@ -200,7 +200,7 @@ async def test_chat_doc_change_invalidates_cache(client, monkeypatch):
     calls = {"n": 0}
 
     class _CountingLLM(MockLLMProvider):
-        async def generate(self, question, chunks):
+        async def generate(self, question, chunks, history=None):
             calls["n"] += 1
             return await super().generate(question, chunks)
 
@@ -227,7 +227,7 @@ async def test_stream_second_ask_replays_single_delta(client, monkeypatch):
     calls = {"n": 0}
 
     class _CountingLLM(MockLLMProvider):
-        async def generate_stream(self, question, chunks):
+        async def generate_stream(self, question, chunks, history=None):
             calls["n"] += 1
             async for delta in super().generate_stream(question, chunks):
                 yield delta

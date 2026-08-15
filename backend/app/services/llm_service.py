@@ -36,10 +36,14 @@ class LLMResult:
 class LLMProvider:
     """LLM 接口。所有实现都接收「问题 + 编号后的资料切片」，返回回答。"""
 
-    async def generate(self, question: str, chunks: list[dict]) -> LLMResult:
+    async def generate(
+        self, question: str, chunks: list[dict], history: list[dict] | None = None
+    ) -> LLMResult:
         raise NotImplementedError
 
-    async def generate_stream(self, question: str, chunks: list[dict]):
+    async def generate_stream(
+        self, question: str, chunks: list[dict], history: list[dict] | None = None
+    ):
         """流式生成：逐段产出回答文本。"""
         raise NotImplementedError
 
@@ -53,7 +57,9 @@ class MockLLMProvider(LLMProvider):
         hits = sum(1 for ch in q_chars if ch in content)
         return hits / len(q_chars)
 
-    async def generate(self, question: str, chunks: list[dict]) -> LLMResult:
+    async def generate(
+        self, question: str, chunks: list[dict], history: list[dict] | None = None
+    ) -> LLMResult:
         best: tuple[int, dict] | None = None
         best_overlap = 0.0
         for i, c in enumerate(chunks, start=1):
@@ -70,9 +76,11 @@ class MockLLMProvider(LLMProvider):
         answer = f"根据公司资料[{idx}]：{chunk['content']}"
         return LLMResult(answer=answer)
 
-    async def generate_stream(self, question: str, chunks: list[dict]):
+    async def generate_stream(
+        self, question: str, chunks: list[dict], history: list[dict] | None = None
+    ):
         # 复用 generate 的判断逻辑，只把结果按小块吐出来模拟打字机
-        result = await self.generate(question, chunks)
+        result = await self.generate(question, chunks, history)
         for i in range(0, len(result.answer), 6):
             yield result.answer[i : i + 6]
             await asyncio.sleep(0.02)
@@ -94,7 +102,12 @@ class OpenAICompatibleLLM(LLMProvider):
         # transport 注入仅用于测试（MockTransport 模拟上游故障）；生产走真实网络
         self._client = httpx.AsyncClient(timeout=90, transport=transport)
 
-    def _build_messages(self, question: str, chunks: list[dict]) -> list[dict]:
+    def _build_messages(
+        self,
+        question: str,
+        chunks: list[dict],
+        history: list[dict] | None = None,
+    ) -> list[dict]:
         context = "\n\n".join(f"[{c['no']}] {c['content']}" for c in chunks)
         system = (
             "你是企业知识库问答助手。请严格依据下方提供的资料回答用户问题。\n"
@@ -106,20 +119,28 @@ class OpenAICompatibleLLM(LLMProvider):
             "4. 标注引用要克制：每个句子后只标注直接支撑它的 [编号]；只引用与回答强相关、真正\n"
             "   支撑答案的资料，不要引用只沾边的。宁可少标，不要为了凑引用而标注弱相关资料。\n"
         )
-        user = f"资料：\n{context}\n\n问题：{question}"
-        return [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ]
+        # P2-1 多轮历史：最近几轮喂给 LLM，追问（"那上限呢？"）才有上下文
+        messages: list[dict] = [{"role": "system", "content": system}]
+        for h in (history or [])[-settings.MAX_HISTORY_TURNS * 2 :]:
+            role = h.get("role")
+            content = (h.get("content") or "")[: settings.MAX_HISTORY_CHARS]
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append(
+            {"role": "user", "content": f"资料：\n{context}\n\n问题：{question}"}
+        )
+        return messages
 
-    async def generate(self, question: str, chunks: list[dict]) -> LLMResult:
+    async def generate(
+        self, question: str, chunks: list[dict], history: list[dict] | None = None
+    ) -> LLMResult:
         resp = await async_retry(
             lambda: self._client.post(
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={
                     "model": self.model,
-                    "messages": self._build_messages(question, chunks),
+                    "messages": self._build_messages(question, chunks, history),
                     "temperature": 0.3,
                     "max_tokens": settings.MAX_OUTPUT_TOKENS,  # P1-6 输出上限防失控
                     "stream": False,
@@ -130,11 +151,13 @@ class OpenAICompatibleLLM(LLMProvider):
         answer = resp.json()["choices"][0]["message"]["content"].strip()
         return LLMResult(answer=answer, no_answer=NO_ANSWER_SENTINEL in answer)
 
-    async def generate_stream(self, question: str, chunks: list[dict]):
+    async def generate_stream(
+        self, question: str, chunks: list[dict], history: list[dict] | None = None
+    ):
         """OpenAI 兼容协议的流式：stream=True，逐块解析 SSE 里的 delta。"""
         payload = {
             "model": self.model,
-            "messages": self._build_messages(question, chunks),
+            "messages": self._build_messages(question, chunks, history),
             "temperature": 0.3,
             "max_tokens": settings.MAX_OUTPUT_TOKENS,  # P1-6 输出上限防失控
             "stream": True,

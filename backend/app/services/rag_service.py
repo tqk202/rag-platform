@@ -97,12 +97,17 @@ async def _persist_and_tag(
     return response
 
 
-def _fit_context_budget(question: str, chunks: list[dict]) -> list[dict]:
+def _fit_context_budget(
+    question: str, chunks: list[dict], history: list[dict] | None = None
+) -> list[dict]:
     """按 token 预算动态截断检索切片并重新编号（P1-6）。
 
     传入顺序即优先级（重排后已在前的强相关先保留）；超出预算的后段丢弃。
+    多轮历史也计入预算（P2-1），避免历史挤掉检索上下文。
     """
     used = estimate_tokens(question) + 200  # 问题 + 提示词模板开销
+    for h in history or []:
+        used += estimate_tokens((h.get("content") or "")[: settings.MAX_HISTORY_CHARS])
     fitted: list[dict] = []
     for c in chunks:
         used += estimate_tokens(c["content"])
@@ -123,8 +128,12 @@ def _from_cache(cached: dict) -> ChatResponse:
 async def answer(
     db: AsyncSession, user: User, data: ChatRequest
 ) -> ChatResponse:
-    # 0. 缓存命中直接返回（热问题秒回；权限隔离在缓存键，失效靠部门版本号）
-    cached = await answer_cache.lookup(data.question, user.department)
+    # 0. 缓存命中直接返回（热问题秒回；仅单轮——多轮含会话上下文，缓存会答非所问）
+    cached = (
+        None
+        if data.history
+        else await answer_cache.lookup(data.question, user.department)
+    )
     if cached is not None:
         return await _persist_and_tag(db, user, data, _from_cache(cached))
 
@@ -132,15 +141,16 @@ async def answer(
     chunks = await _retrieve_and_rerank(db, user, data)
     if not chunks:
         response = ChatResponse(answer=NO_DOC_ANSWER, citations=[], no_answer=True)
-        await answer_cache.store(
-            data.question, user.department, response.answer, response.citations, response.no_answer
-        )
+        if not data.history:
+            await answer_cache.store(
+                data.question, user.department, response.answer, response.citations, response.no_answer
+            )
         return await _persist_and_tag(db, user, data, response)
 
-    # 2. 编号（token 预算截断）-> 组装上下文 -> 生成
-    numbered = _fit_context_budget(data.question, chunks)
+    # 2. 编号（token 预算截断）-> 组装上下文 -> 生成（P2-1 带多轮历史）
+    numbered = _fit_context_budget(data.question, chunks, data.history)
     llm = get_llm_provider()
-    result = await llm.generate(data.question, numbered)
+    result = await llm.generate(data.question, numbered, data.history)
 
     if result.no_answer:
         response = ChatResponse(answer=result.answer, citations=[], no_answer=True)
@@ -151,10 +161,11 @@ async def answer(
             no_answer=False,
         )
 
-    # 3. 回填缓存（同/相近问题下次秒回）+ 落库
-    await answer_cache.store(
-        data.question, user.department, response.answer, response.citations, response.no_answer
-    )
+    # 3. 回填缓存（单轮同/相近问题下次秒回）+ 落库
+    if not data.history:
+        await answer_cache.store(
+            data.question, user.department, response.answer, response.citations, response.no_answer
+        )
     return await _persist_and_tag(db, user, data, response)
 
 
@@ -166,8 +177,13 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
     - delta 一段回答文本（逐字推送）
     - done  完整回答 + 引文 + no_answer
     """
-    # 0. 缓存命中：整个回答一次推完（秒回），再落库保证会话历史完整
-    cached = await answer_cache.lookup(data.question, user.department)
+    # 0. 缓存命中：整个回答一次推完（秒回），再落库保证会话历史完整。
+    #    仅单轮走缓存——多轮含会话上下文，缓存会答非所问（P2-1）
+    cached = (
+        None
+        if data.history
+        else await answer_cache.lookup(data.question, user.department)
+    )
     if cached is not None:
         citations = [Citation(**c) for c in cached["citations"]]
         session = await chat_session_service.save_exchange(
@@ -188,7 +204,8 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
         session = await chat_session_service.save_exchange(
             db, user, data.session_id, data.question, NO_DOC_ANSWER, [], True
         )
-        await answer_cache.store(data.question, user.department, NO_DOC_ANSWER, [], True)
+        if not data.history:
+            await answer_cache.store(data.question, user.department, NO_DOC_ANSWER, [], True)
         yield "done", {
             "answer": NO_DOC_ANSWER,
             "no_answer": True,
@@ -197,7 +214,7 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
         }
         return
 
-    numbered = _fit_context_budget(data.question, chunks)
+    numbered = _fit_context_budget(data.question, chunks, data.history)
     yield "meta", {
         "chunk_count": len(numbered),
         "chunks": [
@@ -212,15 +229,16 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
 
     llm = get_llm_provider()
     parts: list[str] = []
-    async for delta in llm.generate_stream(data.question, numbered):
+    async for delta in llm.generate_stream(data.question, numbered, data.history):
         parts.append(delta)
         yield "delta", delta
 
     answer = "".join(parts)
     no_answer = NO_ANSWER_SENTINEL in answer
     citations = _build_citations(numbered, answer)
-    # 流式完整回答拿到后回填缓存（相近问题下次秒回）
-    await answer_cache.store(data.question, user.department, answer, citations, no_answer)
+    # 流式完整回答拿到后回填缓存（相近问题下次秒回，仅单轮）
+    if not data.history:
+        await answer_cache.store(data.question, user.department, answer, citations, no_answer)
     # 流式完整回答拿到后才落库，避免回答中断留半个会话
     session = await chat_session_service.save_exchange(
         db, user, data.session_id, data.question, answer, citations, no_answer

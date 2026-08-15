@@ -98,10 +98,10 @@ async def test_upload_rejects_oversized_file(client, monkeypatch):
 class _FailProvider:
     """模拟上游 LLM 挂了：抛 httpx 连接错误。"""
 
-    async def generate(self, question, chunks):
+    async def generate(self, question, chunks, history=None):
         raise httpx.ConnectError("connection refused", request=None)
 
-    async def generate_stream(self, question, chunks):
+    async def generate_stream(self, question, chunks, history=None):
         # 与真实实现一致：是异步生成器，首次迭代才抛错（yield 不可达，仅标记生成器）
         raise httpx.ConnectError("connection refused", request=None)
         yield ""  # pragma: no cover
