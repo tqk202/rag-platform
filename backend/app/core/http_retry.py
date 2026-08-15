@@ -32,8 +32,11 @@ DEFAULT_BASE = 0.5  # 首次退避秒数
 DEFAULT_CAP = 8.0  # 退避上限（秒）
 
 
-def _backoff_delay(attempt: int, base: float, cap: float) -> float:
-    """指数退避 + 抖动：base * 2^n，再乘 ±20% 随机因子。"""
+def backoff_delay(attempt: int, base: float, cap: float) -> float:
+    """指数退避 + 抖动：base * 2^n，再乘 ±20% 随机因子。
+
+    W9（HTTP 重试）与 W10（Celery 任务重试）共用同一套退避策略。
+    """
     exp = min(cap, base * (2**attempt))
     return exp * (0.8 + 0.4 * random.random())
 
@@ -44,7 +47,7 @@ def _next_delay(exc: BaseException | None, attempt: int, base: float, cap: float
         header = exc.response.headers.get("Retry-After")
         if header and header.isdigit():
             return min(float(header), cap)
-    return _backoff_delay(attempt, base, cap)
+    return backoff_delay(attempt, base, cap)
 
 
 def retry(

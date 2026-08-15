@@ -32,6 +32,12 @@ export function deleteDocument(id: number) {
   return http.delete<{ ok: boolean }>(`/documents/${id}`).then((r) => r.data)
 }
 
+export function retryDocument(id: number) {
+  return http
+    .post<{ document_id: number; message: string }>(`/documents/${id}/retry`)
+    .then((r) => r.data)
+}
+
 export function getDocument(id: number) {
   return http.get<DocumentDetail>(`/documents/${id}`).then((r) => r.data)
 }

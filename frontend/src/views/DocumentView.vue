@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DocumentDetailDrawer from '@/components/DocumentDetailDrawer.vue'
-import { deleteDocument, listDocuments, uploadDocument } from '@/api/documents'
+import { deleteDocument, listDocuments, retryDocument, uploadDocument } from '@/api/documents'
 import { useAuthStore } from '@/stores/auth'
 import type { DocumentInfo } from '@/types'
 
@@ -73,6 +73,16 @@ async function onDelete(doc: DocumentInfo) {
   load()
 }
 
+async function onRetry(doc: DocumentInfo) {
+  try {
+    const res = await retryDocument(doc.id)
+    ElMessage.success(res.message)
+    load()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '重试失败')
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -103,6 +113,7 @@ onMounted(load)
         <template #default="{ row }">
           <el-tag
             :type="row.status === 'ready' ? 'success' : row.status === 'failed' ? 'danger' : 'info'"
+            :title="row.failure_reason || ''"
           >
             {{ statusMap[row.status] }}
           </el-tag>
@@ -111,9 +122,10 @@ onMounted(load)
       <el-table-column prop="chunk_count" label="切片数" width="100" />
       <el-table-column prop="version" label="版本" width="80" />
       <el-table-column prop="created_at" label="上传时间" width="180" />
-      <el-table-column label="操作" width="140">
+      <el-table-column label="操作" width="180">
         <template #default="{ row }">
           <el-button link type="primary" @click="showDetail(row)">查看</el-button>
+          <el-button v-if="canManage && row.status === 'failed'" link type="warning" @click="onRetry(row)">重试</el-button>
           <el-button v-if="canManage" link type="danger" @click="onDelete(row)">删除</el-button>
         </template>
       </el-table-column>

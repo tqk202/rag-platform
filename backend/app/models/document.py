@@ -27,6 +27,7 @@ class Document(Base, TimestampMixin):
     file_path: Mapped[str] = mapped_column(String(512))
     content_hash: Mapped[str] = mapped_column(String(64), index=True)  # 内容去重
     status: Mapped[DocStatus] = mapped_column(Enum(DocStatus), default=DocStatus.pending, index=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)  # W10 失败原因（前端可看、可判断是否重试）
     version: Mapped[int] = mapped_column(Integer, default=1)
     department: Mapped[str] = mapped_column(String(64), index=True)  # 文档归属部门（权限过滤键）
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))

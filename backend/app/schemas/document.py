@@ -13,6 +13,7 @@ class DocumentOut(BaseModel):
     title: str
     file_name: str
     status: DocStatus
+    failure_reason: str | None = None  # W10 处理失败原因，前端展示 + 判断能否重试
     version: int
     department: str
     chunk_count: int

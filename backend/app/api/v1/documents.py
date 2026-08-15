@@ -43,6 +43,16 @@ async def get_document(
     return await document_service.get_document_detail(db, user, doc_id)
 
 
+@router.post("/{doc_id}/retry", response_model=UploadResponse, summary="重试处理失败的文档")
+async def retry_document(
+    doc_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    _guard: Annotated[User, Depends(require_role(Role.manager, Role.admin))],
+) -> UploadResponse:
+    return await document_service.retry_document(db, user, doc_id)
+
+
 @router.delete("/{doc_id}", summary="删除文档")
 async def delete_document(
     doc_id: int,

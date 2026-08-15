@@ -11,6 +11,7 @@ export interface DocumentInfo {
   title: string
   file_name: string
   status: 'pending' | 'processing' | 'ready' | 'failed'
+  failure_reason?: string | null
   version: number
   department: string
   chunk_count: number

@@ -80,6 +80,12 @@ function setChunkRef(el: unknown, id: number) {
           <el-tag size="small" :type="detail.status === 'ready' ? 'success' : detail.status === 'failed' ? 'danger' : 'info'">
             {{ statusMap[detail.status] }}
           </el-tag>
+          <el-tooltip
+            v-if="detail.status === 'failed' && detail.failure_reason"
+            :content="detail.failure_reason"
+          >
+            <span class="meta-text fail-reason">失败原因</span>
+          </el-tooltip>
           <el-tag v-if="detail.version > 1" size="small" type="info">v{{ detail.version }}</el-tag>
           <span class="meta-text">共 {{ detail.chunk_count }} 切片</span>
           <span class="meta-text">上传于 {{ detail.created_at }}</span>
@@ -114,6 +120,11 @@ function setChunkRef(el: unknown, id: number) {
 .meta-text {
   font-size: 13px;
   color: #666;
+}
+.fail-reason {
+  color: #f56c6c;
+  cursor: help;
+  border-bottom: 1px dashed #f56c6c;
 }
 .chunk {
   margin-bottom: 14px;

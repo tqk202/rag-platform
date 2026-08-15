@@ -31,6 +31,7 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
         return
 
     doc.status = DocStatus.processing
+    doc.failure_reason = None  # 重试时清掉上次的失败原因
     await db.commit()
 
     try:
@@ -77,9 +78,10 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
         doc.chunk_count = len(chunks)
         await db.commit()
         logger.info("文档 %s 处理完成，切片数 %s", doc.id, len(chunks))
-    except Exception:
+    except Exception as exc:
         await db.rollback()
         doc.status = DocStatus.failed
+        doc.failure_reason = str(exc)[:500]  # W10 失败原因落库，前端可见
         await db.commit()
         logger.exception("文档 %s 处理失败", doc.id)
         raise

@@ -222,6 +222,28 @@ async def get_document_detail(
     )
 
 
+async def retry_document(
+    db: AsyncSession, user: User, doc_id: int
+) -> UploadResponse:
+    """失败文档手动重试：重置为待处理并重新投递入库管线。"""
+    doc = await db.get(Document, doc_id)
+    if doc is None:
+        raise NotFoundError("文档不存在")
+    if user.role != Role.admin and doc.department != user.department:
+        raise PermissionDeniedError("无权重试该文档")
+    if doc.status != DocStatus.failed:
+        raise AppError("只有处理失败的文档可以重试")
+
+    doc.status = DocStatus.pending
+    doc.failure_reason = None
+    await db.commit()
+    await db.refresh(doc)
+
+    result = await _finish_processing(db, doc)
+    result.message = f"已重新提交处理，{result.message}"
+    return result
+
+
 async def delete_document(db: AsyncSession, user: User, doc_id: int) -> None:
     doc = await db.get(Document, doc_id)
     if doc is None:
