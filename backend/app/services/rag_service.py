@@ -10,6 +10,7 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.token_counter import estimate_tokens
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
 from app.services import answer_cache, chat_session_service, rerank_service, retrieval_service
@@ -39,7 +40,8 @@ async def _retrieve_and_rerank(
         before = [c["chunk_id"] for c in chunks]
         chunks = await reranker.rerank(data.question, chunks)
         logger.info("rerank 前 %s -> 后 %s", before[:5], [c["chunk_id"] for c in chunks[: settings.RERANK_TOP_N]])
-        chunks = chunks[: settings.RERANK_TOP_N]
+    # P1-6 兜底：无论是否重排，都给 LLM 截到上限，防上下文溢出/烧钱
+    chunks = chunks[: settings.RERANK_TOP_N]
     return chunks
 
 
@@ -95,6 +97,21 @@ async def _persist_and_tag(
     return response
 
 
+def _fit_context_budget(question: str, chunks: list[dict]) -> list[dict]:
+    """按 token 预算动态截断检索切片并重新编号（P1-6）。
+
+    传入顺序即优先级（重排后已在前的强相关先保留）；超出预算的后段丢弃。
+    """
+    used = estimate_tokens(question) + 200  # 问题 + 提示词模板开销
+    fitted: list[dict] = []
+    for c in chunks:
+        used += estimate_tokens(c["content"])
+        if used > settings.MAX_CONTEXT_TOKENS:
+            break
+        fitted.append(c)
+    return [{**c, "no": i} for i, c in enumerate(fitted, start=1)]
+
+
 def _from_cache(cached: dict) -> ChatResponse:
     return ChatResponse(
         answer=cached["answer"],
@@ -120,8 +137,8 @@ async def answer(
         )
         return await _persist_and_tag(db, user, data, response)
 
-    # 2. 编号 -> 组装上下文 -> 生成
-    numbered = [{**c, "no": i} for i, c in enumerate(chunks, start=1)]
+    # 2. 编号（token 预算截断）-> 组装上下文 -> 生成
+    numbered = _fit_context_budget(data.question, chunks)
     llm = get_llm_provider()
     result = await llm.generate(data.question, numbered)
 
@@ -180,7 +197,7 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
         }
         return
 
-    numbered = [{**c, "no": i} for i, c in enumerate(chunks, start=1)]
+    numbered = _fit_context_budget(data.question, chunks)
     yield "meta", {
         "chunk_count": len(numbered),
         "chunks": [

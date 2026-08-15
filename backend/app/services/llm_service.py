@@ -121,6 +121,7 @@ class OpenAICompatibleLLM(LLMProvider):
                     "model": self.model,
                     "messages": self._build_messages(question, chunks),
                     "temperature": 0.3,
+                    "max_tokens": settings.MAX_OUTPUT_TOKENS,  # P1-6 输出上限防失控
                     "stream": False,
                 },
             )
@@ -135,6 +136,7 @@ class OpenAICompatibleLLM(LLMProvider):
             "model": self.model,
             "messages": self._build_messages(question, chunks),
             "temperature": 0.3,
+            "max_tokens": settings.MAX_OUTPUT_TOKENS,  # P1-6 输出上限防失控
             "stream": True,
         }
         async with self._client.stream(

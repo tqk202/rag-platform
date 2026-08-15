@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     RERANK_TOP_N: int = 5              # 重排后取前 N 条给 LLM
     CITATION_MIN_SCORE_RATIO: float = 0.5  # 引文过滤：重排分低于最强引文该比例者剔除（只留强相关）
 
+    # 上下文预算（P1-6）：LLM 每次调用都花钱，检索结果按 token 预算动态截断，
+    # 防长文档上下文溢出 + 成本失控；输出也设上限
+    MAX_CONTEXT_TOKENS: int = 4000   # 输入上下文预算（含问题 + 检索切片 + 提示词）
+    MAX_OUTPUT_TOKENS: int = 1024    # 输出上限（max_tokens）
+
     # 限流（W5）：LLM 接口每次调用都花钱，防止单用户刷爆 / 被爬虫打
     RATE_LIMIT_RPM: int = 30           # 每用户每分钟允许的 /chat 请求数（token bucket 稳态速率）
 
