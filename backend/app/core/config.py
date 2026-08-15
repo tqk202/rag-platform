@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     # 限流（W5）：LLM 接口每次调用都花钱，防止单用户刷爆 / 被爬虫打
     RATE_LIMIT_RPM: int = 30           # 每用户每分钟允许的 /chat 请求数（token bucket 稳态速率）
 
+    # 回答缓存（W11）：热问题秒回 + 省 LLM 调用。语义命中：Milvus 存问句向量，
+    # KV（Redis/内存）存回答负载；部门版本号失效 + TTL 双保险
+    ANSWER_CACHE_ENABLED: bool = True
+    ANSWER_CACHE_BACKEND: str = "redis"  # redis(生产) | memory(测试/无 Redis 环境)
+    ANSWER_CACHE_TTL_SECONDS: int = 86400            # 缓存 24h，防止无限膨胀
+    ANSWER_CACHE_SIMILARITY_THRESHOLD: float = 0.95  # 问句余弦相似度阈值，>= 算命中
+    ANSWER_CACHE_MILVUS_COLLECTION: str = "question_cache"
+
 
 @lru_cache
 def get_settings() -> Settings:

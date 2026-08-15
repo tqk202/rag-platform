@@ -8,6 +8,7 @@ os.environ["VECTOR_URI"] = "data/test_milvus.db"
 os.environ["INGESTION_MODE"] = "inline"
 os.environ["EMBEDDING_BACKEND"] = "mock"
 os.environ["LLM_BACKEND"] = "mock"
+os.environ["ANSWER_CACHE_BACKEND"] = "memory"  # 测试不依赖 Redis，用内存 KV
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +16,7 @@ from httpx import ASGITransport, AsyncClient
 from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models import Base
+from app.services import answer_cache
 from app.services.sparse_service import get_sparse_index
 from app.services.vector_service import COLLECTION_NAME, vector_store
 
@@ -29,6 +31,7 @@ async def _reset_state():
         vector_store.client.drop_collection(COLLECTION_NAME)
     async with AsyncSessionLocal() as db:
         await get_sparse_index().drop(db)  # FTS 表不在 ORM 元数据里，需显式清
+    await answer_cache.reset_cache()  # W11: 清 KV + 问句索引，避免缓存跨用例泄漏
     yield
 
 

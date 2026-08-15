@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
-from app.services import chat_session_service, rerank_service, retrieval_service
+from app.services import answer_cache, chat_session_service, rerank_service, retrieval_service
 from app.services.llm_service import NO_ANSWER_SENTINEL, get_llm_provider
 
 logger = logging.getLogger(__name__)
@@ -95,18 +95,30 @@ async def _persist_and_tag(
     return response
 
 
+def _from_cache(cached: dict) -> ChatResponse:
+    return ChatResponse(
+        answer=cached["answer"],
+        citations=[Citation(**c) for c in cached["citations"]],
+        no_answer=cached["no_answer"],
+    )
+
+
 async def answer(
     db: AsyncSession, user: User, data: ChatRequest
 ) -> ChatResponse:
+    # 0. 缓存命中直接返回（热问题秒回；权限隔离在缓存键，失效靠部门版本号）
+    cached = await answer_cache.lookup(data.question, user.department)
+    if cached is not None:
+        return await _persist_and_tag(db, user, data, _from_cache(cached))
+
     # 1. 召回 + 重排（检索层已完成部门权限过滤）
     chunks = await _retrieve_and_rerank(db, user, data)
     if not chunks:
-        return await _persist_and_tag(
-            db,
-            user,
-            data,
-            ChatResponse(answer=NO_DOC_ANSWER, citations=[], no_answer=True),
+        response = ChatResponse(answer=NO_DOC_ANSWER, citations=[], no_answer=True)
+        await answer_cache.store(
+            data.question, user.department, response.answer, response.citations, response.no_answer
         )
+        return await _persist_and_tag(db, user, data, response)
 
     # 2. 编号 -> 组装上下文 -> 生成
     numbered = [{**c, "no": i} for i, c in enumerate(chunks, start=1)]
@@ -114,24 +126,19 @@ async def answer(
     result = await llm.generate(data.question, numbered)
 
     if result.no_answer:
-        return await _persist_and_tag(
-            db,
-            user,
-            data,
-            ChatResponse(answer=result.answer, citations=[], no_answer=True),
-        )
-
-    # 3. 引文解析 + 落库
-    return await _persist_and_tag(
-        db,
-        user,
-        data,
-        ChatResponse(
+        response = ChatResponse(answer=result.answer, citations=[], no_answer=True)
+    else:
+        response = ChatResponse(
             answer=result.answer,
             citations=_build_citations(numbered, result.answer),
             no_answer=False,
-        ),
+        )
+
+    # 3. 回填缓存（同/相近问题下次秒回）+ 落库
+    await answer_cache.store(
+        data.question, user.department, response.answer, response.citations, response.no_answer
     )
+    return await _persist_and_tag(db, user, data, response)
 
 
 async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
@@ -142,11 +149,29 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
     - delta 一段回答文本（逐字推送）
     - done  完整回答 + 引文 + no_answer
     """
+    # 0. 缓存命中：整个回答一次推完（秒回），再落库保证会话历史完整
+    cached = await answer_cache.lookup(data.question, user.department)
+    if cached is not None:
+        citations = [Citation(**c) for c in cached["citations"]]
+        session = await chat_session_service.save_exchange(
+            db, user, data.session_id, data.question,
+            cached["answer"], citations, cached["no_answer"],
+        )
+        yield "delta", cached["answer"]
+        yield "done", {
+            "answer": cached["answer"],
+            "no_answer": cached["no_answer"],
+            "citations": [c.model_dump() for c in citations],
+            "session_id": session.id,
+        }
+        return
+
     chunks = await _retrieve_and_rerank(db, user, data)
     if not chunks:
         session = await chat_session_service.save_exchange(
             db, user, data.session_id, data.question, NO_DOC_ANSWER, [], True
         )
+        await answer_cache.store(data.question, user.department, NO_DOC_ANSWER, [], True)
         yield "done", {
             "answer": NO_DOC_ANSWER,
             "no_answer": True,
@@ -177,6 +202,8 @@ async def stream_answer(db: AsyncSession, user: User, data: ChatRequest):
     answer = "".join(parts)
     no_answer = NO_ANSWER_SENTINEL in answer
     citations = _build_citations(numbered, answer)
+    # 流式完整回答拿到后回填缓存（相近问题下次秒回）
+    await answer_cache.store(data.question, user.department, answer, citations, no_answer)
     # 流式完整回答拿到后才落库，避免回答中断留半个会话
     session = await chat_session_service.save_exchange(
         db, user, data.session_id, data.question, answer, citations, no_answer

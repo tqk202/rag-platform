@@ -12,6 +12,7 @@ from app.models.document import DocStatus, Document
 from app.models.user import Role, User
 from app.schemas.common import Page
 from app.schemas.document import ChunkOut, DocumentDetail, DocumentOut, UploadResponse
+from app.services import answer_cache
 from app.services.ingestion_service import compute_content_hash
 from app.services.sparse_service import get_sparse_index
 from app.services.vector_service import vector_store
@@ -116,6 +117,7 @@ async def _update_document_version(
     doc.status = DocStatus.pending
     await db.commit()
     await db.refresh(doc)
+    await answer_cache.bump_version(doc.department)  # W11: 知识库已变，旧回答缓存作废
 
     result = await _finish_processing(db, doc)
     result.message = f"更新成功，已升级到第 {doc.version} 版"
@@ -172,6 +174,7 @@ async def upload_document(
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
+    await answer_cache.bump_version(target_dept)  # W11: 知识库已变，旧回答缓存作废
 
     result = await _finish_processing(db, doc)
     result.message = f"上传成功，{result.message}"
@@ -238,6 +241,7 @@ async def retry_document(
     doc.failure_reason = None
     await db.commit()
     await db.refresh(doc)
+    await answer_cache.bump_version(doc.department)  # W11: 重试可能产出新内容，旧回答缓存作废
 
     result = await _finish_processing(db, doc)
     result.message = f"已重新提交处理，{result.message}"
@@ -256,3 +260,4 @@ async def delete_document(db: AsyncSession, user: User, doc_id: int) -> None:
 
     await db.delete(doc)
     await db.commit()
+    await answer_cache.bump_version(doc.department)  # W11: 文档被删，旧回答缓存作废
