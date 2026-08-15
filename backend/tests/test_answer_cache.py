@@ -8,12 +8,12 @@ import math
 import pytest
 
 from app.core.config import get_settings
+from app.core.kv import MemoryCacheKV, RedisCacheKV
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
 from app.models.user import Role, User
 from app.schemas.chat import Citation
 from app.services import answer_cache, rag_service
-from app.services.answer_cache import MemoryCacheKV, RedisCacheKV
 from app.services.llm_service import MockLLMProvider
 
 settings = get_settings()

@@ -17,9 +17,9 @@ Redis/Milvus 异常时直接 miss，绝不让缓存拖垮问答主链路。
 import hashlib
 import json
 import logging
-import time
 
 from app.core.config import get_settings
+from app.core.kv import CacheKV, build_default_kv
 from app.schemas.chat import Citation
 from app.services.embedding_service import get_embedding_provider
 from app.services.vector_service import vector_store
@@ -29,86 +29,13 @@ settings = get_settings()
 
 Q_COLLECTION = settings.ANSWER_CACHE_MILVUS_COLLECTION
 
-
-class CacheKV:
-    """键值存储抽象：回答负载 + 每部门版本号。redis | memory 双实现。"""
-
-    async def get(self, key: str) -> str | None:
-        raise NotImplementedError
-
-    async def set(self, key: str, value: str, ttl: int) -> None:
-        raise NotImplementedError
-
-    async def incr(self, key: str) -> int:
-        raise NotImplementedError
-
-    async def clear(self) -> None:
-        raise NotImplementedError
-
-
-class MemoryCacheKV(CacheKV):
-    """测试/无 Redis 环境的内存实现：进程内字典 + 过期时间。"""
-
-    def __init__(self) -> None:
-        self._data: dict[str, str] = {}
-        self._expire: dict[str, float] = {}
-
-    async def get(self, key: str) -> str | None:
-        exp = self._expire.get(key)
-        if exp is not None and exp <= time.monotonic():
-            self._data.pop(key, None)
-            self._expire.pop(key, None)
-            return None
-        return self._data.get(key)
-
-    async def set(self, key: str, value: str, ttl: int) -> None:
-        self._data[key] = value
-        self._expire[key] = time.monotonic() + ttl
-
-    async def incr(self, key: str) -> int:
-        val = int(self._data.get(key, 0)) + 1
-        self._data[key] = str(val)
-        return val
-
-    async def clear(self) -> None:
-        self._data.clear()
-        self._expire.clear()
-
-
-class RedisCacheKV(CacheKV):
-    """生产实现：Redis。懒导入避免内存模式也拉 redis 依赖。"""
-
-    def __init__(self, url: str) -> None:
-        import redis.asyncio as aioredis
-
-        self._r = aioredis.from_url(url, decode_responses=True)
-
-    async def get(self, key: str) -> str | None:
-        return await self._r.get(key)
-
-    async def set(self, key: str, value: str, ttl: int) -> None:
-        await self._r.set(key, value, ex=ttl)
-
-    async def incr(self, key: str) -> int:
-        return await self._r.incr(key)
-
-    async def clear(self) -> None:
-        await self._r.flushdb()
-
-
 _kv_holder: dict[str, CacheKV] = {}
 
 
 def _kv_store() -> CacheKV:
     if not _kv_holder:
-        _kv_holder["kv"] = _redis_or_memory()
+        _kv_holder["kv"] = build_default_kv()
     return _kv_holder["kv"]
-
-
-def _redis_or_memory() -> CacheKV:
-    if settings.ANSWER_CACHE_BACKEND == "redis":
-        return RedisCacheKV(settings.REDIS_URL)
-    return MemoryCacheKV()
 
 
 def _cache_key(question: str, department: str) -> str:

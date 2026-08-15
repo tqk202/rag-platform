@@ -1,6 +1,7 @@
 """全局配置：从环境变量 / .env 读取，pydantic 负责类型校验。"""
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 部门清单（注册下拉用，单一来源）。value 必须与文档的 department 字段一致，
@@ -72,6 +73,15 @@ class Settings(BaseSettings):
     ANSWER_CACHE_TTL_SECONDS: int = 86400            # 缓存 24h，防止无限膨胀
     ANSWER_CACHE_SIMILARITY_THRESHOLD: float = 0.95  # 问句余弦相似度阈值，>= 算命中
     ANSWER_CACHE_MILVUS_COLLECTION: str = "question_cache"
+
+    @model_validator(mode="after")
+    def _secret_not_weak_in_production(self):
+        """P1-3 生产防线：默认占位密钥直接拒绝启动，防带病上线。"""
+        if self.ENVIRONMENT == "production" and (
+            not self.SECRET_KEY or self.SECRET_KEY == "change-me"
+        ):
+            raise ValueError("生产环境必须设置强 SECRET_KEY（backend/.env 配置），拒绝启动")
+        return self
 
 
 @lru_cache

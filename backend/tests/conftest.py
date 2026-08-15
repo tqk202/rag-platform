@@ -13,6 +13,7 @@ os.environ["ANSWER_CACHE_BACKEND"] = "memory"  # 测试不依赖 Redis，用内�
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.token_blacklist import reset_blacklist
 from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models import Base
@@ -32,6 +33,10 @@ async def _reset_state():
     async with AsyncSessionLocal() as db:
         await get_sparse_index().drop(db)  # FTS 表不在 ORM 元数据里，需显式清
     await answer_cache.reset_cache()  # W11: 清 KV + 问句索引，避免缓存跨用例泄漏
+    await reset_blacklist()  # P1-3: 清令牌黑名单，避免跨用例泄漏
+    from app.api.v1.auth import reset_login_limiter
+
+    reset_login_limiter()  # P1-3: 清登录限流桶（测试共用 IP，会跨用例累积）
     yield
 
 

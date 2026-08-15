@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.exceptions import PermissionDeniedError, UnauthorizedError
 from app.core.ratelimit import RateLimitExceeded, rate_limiter
 from app.core.security import decode_access_token
+from app.core.token_blacklist import is_revoked
 from app.db.session import get_db
 from app.models.user import Role, User
 
@@ -23,6 +24,10 @@ async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)], db: DbSession
 ) -> User:
     payload = decode_access_token(token)  # 无效/过期会抛 UnauthorizedError
+    # P1-3 登出黑名单：jti 被拉黑则令牌立即失效
+    jti = payload.get("jti")
+    if jti and await is_revoked(jti):
+        raise UnauthorizedError("登录态已失效，请重新登录")
     user_id = payload.get("sub")
     if user_id is None:
         raise UnauthorizedError("无效的登录态")
