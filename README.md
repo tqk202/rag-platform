@@ -64,6 +64,18 @@ docker compose exec backend python scripts/seed_dev.py
 
 黄金评测集（52 可答题 + 3 拒答题）+ RAGAS 风格四指标 + 拒答准确率。CI 每次提交自动跑离线评测，质量回退即失败：
 
+**真实评测指标**（2026-08-16，8 份企业脏文档，生产配置：bge-m3 嵌入 + bge-reranker 重排 + DeepSeek 裁判）：
+
+| 指标 | 得分 | 含义 |
+|---|---|---|
+| context_precision | 0.9808 | 检索精准度（相关切片排得靠前） |
+| context_recall | 1.0 | 检索召回（标准答案出处是否被检索到） |
+| faithfulness | 1.0 | 忠于资料（回答是否有依据、不编造） |
+| answer_relevancy | 1.0 | 切题（回答是否直接回应问题） |
+| reject_accuracy | 1.0（3/3） | 拒答准确率（资料外问题正确拒绝） |
+
+> 仅 2 道跨文档拼接题（离职年假折算 / 加班费日工资）context_precision 为 0.5——答案需拼多份文档，相关切片位置靠后，recall 仍满分（内容都检索到了）。
+
 ```bash
 cd backend
 .venv\Scripts\python scripts/ablation.py api real   # 全真实评测（bge-m3 嵌入 + bge-reranker 重排 + DeepSeek 裁判）
