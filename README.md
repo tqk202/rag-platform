@@ -35,6 +35,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements-dev.txt
 # backend/.env 已配置轻量模式：SQLite + Milvus Lite（本地文件）
+.venv\Scripts\python -m alembic upgrade head   # 应用数据库迁移（首次建表）
 uvicorn app.main:app --reload
 ```
 
@@ -45,9 +46,11 @@ uvicorn app.main:app --reload
 cp .env.example .env
 
 # 2. 构建并启动全部服务（Postgres / Redis / Milvus / 后端 / Worker / 前端）
+#    后端容器启动时会自动执行 `alembic upgrade head`（数据库迁移）再起服务
 docker compose up -d --build
 
-# 3. 灌入演示数据（演示账号 admin / mgr_hr / member_hr，密码均 123456）
+# 3. 灌入演示数据（演示账号 admin / mgr_hr / member_hr，密码均 123456；
+#    seed 重建库后会自动 stamp 到当前迁移版本）
 docker compose exec backend python scripts/seed_dev.py
 
 # 4. 访问
@@ -67,10 +70,30 @@ cd backend
 .venv\Scripts\python scripts/ablation.py            # mock 模式（离线、免费，验证流程）
 ```
 
+## 数据库迁移（Alembic）
+
+schema 版本化迁移：**改表结构不再需要清库重灌**，老库原地升级、数据不丢。
+后端容器启动前自动执行 `alembic upgrade head`；本地开发需手动跑一次。
+
+```bash
+cd backend
+.venv\Scripts\python -m alembic upgrade head     # 应用全部迁移到最新
+.venv\Scripts\python -m alembic revision --autogenerate -m "add xxx"   # 改完模型后生成新迁移
+.venv\Scripts\python -m alembic downgrade base   # 回退到空库（本地演示用）
+.venv\Scripts\python -m alembic check            # 校验「模型 ↔ 迁移」是否同步（CI 也会跑）
+```
+
+说明：
+- 项目是纯 async 数据库驱动，采用 Alembic 的 async 迁移模板（`alembic init -t async`）。
+- 稀疏索引表 `chunks_fts`（FTS5 / PG GIN 双实现）不在 ORM 元数据里，由迁移手写 SQL 按方言建表，`include_object` 过滤器把它排除出 autogenerate 对比。
+- `seed_dev.py` / `run_eval.py` 整库重建后会自动 `alembic stamp head`，保证版本表与 schema 一致。
+
 ## 项目结构
 
 ```
 backend/            # FastAPI 后端
+│  alembic/         # 数据库迁移（Alembic async 模板 + 版本迁移）
+│  alembic.ini      # Alembic 配置
 │  app/api/         # 路由层（认证 / 文档 / 问答 / 管理）
 │  app/services/    # 业务逻辑（文档 / 检索 / 问答 / 向量 / 评测）
 │  app/models/      # 数据库模型
@@ -87,7 +110,7 @@ docs/
 ## 质量与 CI
 
 - 113 个自动化测试（pytest）+ ruff 静态检查
-- GitHub Actions：push / PR 自动跑测试、lint、黄金评测护栏
+- GitHub Actions：push / PR 自动跑测试、lint、黄金评测护栏、Alembic 迁移校验（迁移可跑 + 模型与迁移同步）
 
 ## 文档
 

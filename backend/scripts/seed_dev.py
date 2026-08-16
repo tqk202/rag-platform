@@ -11,6 +11,7 @@
 注意：会删除开发库所有数据（仅含演示文档和测试账号，可重建）。
 """
 import asyncio
+import subprocess
 import sys
 from pathlib import Path
 
@@ -80,6 +81,10 @@ async def main() -> None:
             await db.flush()
             await process_document(db, doc.id)
             print(f"已灌入 {path.name}（切片 {doc.chunk_count}）")
+
+    # 重建后 alembic_version 表被 drop_all 清掉，stamp 打回当前迁移版本，
+    # 否则下次 `alembic upgrade head` 会因表已存在而报错（stamp 只写版本号、不跑 DDL）
+    subprocess.run([sys.executable, "-m", "alembic", "stamp", "head"], cwd=BACKEND_DIR, check=True)
 
     print("\n完成。登录账号（密码均 123456）：")
     for u, r, _ in USERS:

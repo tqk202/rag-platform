@@ -9,7 +9,6 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.observability import RequestIDMiddleware, install_request_id_logging
 
-logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # 让 app.* 的 INFO 日志可见（uvicorn 默认只显示它自己的 logger）。
@@ -24,15 +23,10 @@ install_request_id_logging()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # 脚手架阶段直接建表；生产环境应迁移到 Alembic（见 W3 工程化任务）
+    # schema 由 Alembic 管理：部署/启动前先跑 `alembic upgrade head`
+    # （docker compose 的 backend 命令已自动执行），这里不再建表
     from app.db.session import engine
-    from app.models import Base
 
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-    except Exception as exc:  # 基础设施未就绪时不阻断启动，便于本地联调
-        logger.warning("数据库未就绪，跳过建表：%s", exc)
     yield
     await engine.dispose()
 

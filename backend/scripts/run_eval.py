@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -215,8 +216,15 @@ def aggregate_rejects(rejects: list[dict]) -> dict:
     }
 
 
+def stamp_head() -> None:
+    """重建后 alembic_version 表被 drop_all 清掉，stamp 打回当前迁移版本，
+    否则下次 `alembic upgrade head` 会因表已存在而报错（stamp 只写版本号、不跑 DDL）。"""
+    subprocess.run([sys.executable, "-m", "alembic", "stamp", "head"], cwd=BACKEND_DIR, check=True)
+
+
 async def main() -> None:
     await reset_state()
+    stamp_head()
     await ingest_demo_docs()
 
     golden = load_golden()
