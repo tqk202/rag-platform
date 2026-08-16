@@ -116,3 +116,7 @@ docs/
 
 - [架构说明](docs/architecture.md)
 - GitHub 仓库：[tqk202/rag-platform](https://github.com/tqk202/rag-platform)
+
+## License
+
+本项目基于 [MIT License](LICENSE) 开源。
