@@ -41,6 +41,8 @@ uvicorn app.main:app --reload
 
 ### 生产部署（Docker Compose）
 
+> **快捷方式**：双击仓库根目录 `start.bat` 即可自动完成下方 1~4 步（自动启动 Docker Desktop、构建启动全栈、等待就绪；库为空时自动灌演示数据）。Windows 专用。
+
 ```bash
 # 1. 环境变量（backend/.env 放真实 API key，gitignored 不进镜像）
 cp .env.example .env
