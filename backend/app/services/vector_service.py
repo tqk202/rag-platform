@@ -3,15 +3,24 @@
 URI 指向本地文件 -> Milvus Lite（开发，零 Docker）；
 URI 指向 http://  -> Milvus standalone（Docker/生产）。
 """
+import logging
 from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
 
 COLLECTION_NAME = settings.MILVUS_COLLECTION
 DIM = settings.EMBEDDING_DIM
+
+
+def quote_filter(value: str) -> str:
+    """Milvus 表达式字符串字面量：双引号内直接写非 ASCII 解析失败（invalid parameter），
+    统一用单引号包裹并对内部引号/反斜杠转义。"""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
 class VectorStore:
@@ -33,9 +42,24 @@ class VectorStore:
             self._client = MilvusClient(uri=self.uri)
         return self._client
 
+    def _collection_missing_kb_field(self) -> bool:
+        """已存在的集合是否缺 knowledge_base 字段（多知识库 schema 升级判断）。"""
+        desc = self.client.describe_collection(COLLECTION_NAME)
+        fields = desc.get("fields", [])
+        return all(f.get("name") != "knowledge_base" for f in fields)
+
     def ensure_collection(self, dim: int = DIM) -> None:
         if self.client.has_collection(COLLECTION_NAME):
-            return
+            # 多知识库 schema 升级：集合存在但缺 knowledge_base 字段 -> 自愈重建
+            # （Milvus 不支持原地加字段；旧库重建后由重灌/对账回填数据）
+            if self._collection_missing_kb_field():
+                logger.warning(
+                    "向量集合 %s 缺 knowledge_base 字段，重建（旧数据需重灌）",
+                    COLLECTION_NAME,
+                )
+                self.client.drop_collection(COLLECTION_NAME)
+            else:
+                return
 
         from pymilvus import DataType, MilvusClient
 
@@ -43,6 +67,7 @@ class VectorStore:
         schema.add_field(field_name="chunk_id", datatype=DataType.INT64, is_primary=True)
         schema.add_field(field_name="document_id", datatype=DataType.INT64)
         schema.add_field(field_name="department", datatype=DataType.VARCHAR, max_length=64)
+        schema.add_field(field_name="knowledge_base", datatype=DataType.VARCHAR, max_length=64)
         schema.add_field(field_name="page_no", datatype=DataType.INT32)
         schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=8192)
         schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=dim)
@@ -57,7 +82,7 @@ class VectorStore:
         )
 
     def insert_chunks(self, rows: list[dict]) -> None:
-        """rows: [{chunk_id, document_id, department, page_no, content, vector}]"""
+        """rows: [{chunk_id, document_id, department, knowledge_base, page_no, content, vector}]"""
         self.ensure_collection()
         self.client.insert(collection_name=COLLECTION_NAME, data=rows)
 

@@ -3,14 +3,19 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DocumentDetailDrawer from '@/components/DocumentDetailDrawer.vue'
 import { deleteDocument, listDocuments, retryDocument, uploadDocument } from '@/api/documents'
+import { listKnowledgeBases } from '@/api/knowledgeBases'
 import { reconcileAll, reconcileDocument } from '@/api/admin'
 import { useAuthStore } from '@/stores/auth'
-import type { DocumentInfo } from '@/types'
+import type { DocumentInfo, KnowledgeBaseInfo } from '@/types'
 
 const auth = useAuthStore()
 const docs = ref<DocumentInfo[]>([])
 const total = ref(0)
 const loading = ref(false)
+
+// 多知识库：上传时可选归属库（不选 = 部门默认库）
+const kbList = ref<KnowledgeBaseInfo[]>([])
+const uploadKb = ref('')
 
 // 只有经理/管理员能上传和删除；普通成员只读；对账是运维操作，仅管理员
 const canManage = computed(() => auth.user?.role === 'manager' || auth.user?.role === 'admin')
@@ -57,7 +62,11 @@ async function onFileChange(file: File) {
   uploading.value = true
   uploadPercent.value = 0
   try {
-    const res = await uploadDocument(file, (pct) => (uploadPercent.value = pct))
+    const res = await uploadDocument(
+      file,
+      (pct) => (uploadPercent.value = pct),
+      uploadKb.value || undefined,
+    )
     ElMessage.success(res.message)
     load()
   } catch (e: any) {
@@ -115,7 +124,14 @@ async function onReconcileAll() {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  try {
+    kbList.value = await listKnowledgeBases()
+  } catch {
+    // 加载知识库失败不阻塞文档列表
+  }
+  load()
+})
 </script>
 
 <template>
@@ -124,6 +140,21 @@ onMounted(load)
       <h3>知识库文档（共 {{ total }} 份）</h3>
       <div class="toolbar-actions">
         <el-button v-if="isAdmin" @click="onReconcileAll">全量对账</el-button>
+        <el-select
+          v-if="canManage"
+          v-model="uploadKb"
+          placeholder="默认知识库"
+          clearable
+          size="default"
+          style="width: 160px"
+        >
+          <el-option
+            v-for="kb in kbList"
+            :key="kb.id"
+            :label="kb.name"
+            :value="kb.name"
+          />
+        </el-select>
         <el-upload
           v-if="canManage"
           :show-file-list="false"
@@ -134,7 +165,7 @@ onMounted(load)
         </el-upload>
       </div>
     </div>
-    <div v-if="canManage" class="upload-hint">支持 {{ ALLOWED.join(' ') }}，最大 20MB；同部门同名文件重新上传 = 升版</div>
+    <div v-if="canManage" class="upload-hint">支持 {{ ALLOWED.join(' ') }}，最大 20MB；同部门同名文件重新上传 = 升版；不选知识库则进部门默认库</div>
     <el-progress
       v-if="uploading"
       class="upload-progress"
@@ -143,7 +174,12 @@ onMounted(load)
     />
     <el-table :data="docs" v-loading="loading" stripe>
       <el-table-column prop="file_name" label="文件名" />
-      <el-table-column prop="department" label="部门" width="120" />
+      <el-table-column prop="department" label="部门" width="110" />
+      <el-table-column prop="knowledge_base" label="知识库" width="130">
+        <template #default="{ row }">
+          {{ row.knowledge_base || '—' }}
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
           <el-tag

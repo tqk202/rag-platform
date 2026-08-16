@@ -12,6 +12,15 @@ def test_removes_page_footer_lines():
     assert "正文内容" in cleaned
 
 
+def test_removes_english_page_footer_lines():
+    text = "Introduction\nPage 1 of 5\nBody text\nPage 2/5\n"
+    cleaned = clean_text(text)
+    assert "Page 1 of 5" not in cleaned
+    assert "Page 2/5" not in cleaned
+    assert "Introduction" in cleaned
+    assert "Body text" in cleaned
+
+
 def test_converts_fullwidth_space_to_halfwidth():
     text = "　　　第 1 页 共 8 页　　星辰云驰科技有限公司\n正文"
     cleaned = clean_text(text)

@@ -2,14 +2,17 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DocumentDetailDrawer from '@/components/DocumentDetailDrawer.vue'
-import { chatStream, deleteSession, getSession, listSessions } from '@/api/chat'
-import type { ChatMessageInfo, ChatSessionInfo, Citation } from '@/types'
+import { chatStream, deleteSession, getSession, listSessions, submitFeedback } from '@/api/chat'
+import { listKnowledgeBases } from '@/api/knowledgeBases'
+import type { ChatMessageInfo, ChatSessionInfo, Citation, KnowledgeBaseInfo } from '@/types'
 
 interface Msg {
   role: 'user' | 'assistant'
   content: string
   citations?: Citation[]
   status?: string // 生成中的状态提示（正在检索/生成）
+  id?: number // 回答消息 id，点赞/点踩绑定
+  feedback?: 'like' | 'dislike' | null
 }
 
 const input = ref('')
@@ -21,6 +24,50 @@ const sessions = ref<ChatSessionInfo[]>([])
 const currentSessionId = ref<number | null>(null)
 const sessionsLoading = ref(false)
 
+// 多知识库：顶部下拉（空 = 部门内全部知识库）
+const knowledgeBases = ref<KnowledgeBaseInfo[]>([])
+const currentKb = ref<string | null>(null)
+
+function toMsg(m: ChatMessageInfo): Msg {
+  return {
+    role: m.role,
+    content: m.content,
+    citations: m.citations || [],
+    id: m.id,
+  }
+}
+
+async function onFeedback(m: Msg, sentiment: 'like' | 'dislike') {
+  if (!m.id) return
+  if (m.feedback === sentiment) {
+    // 再点同倾向 = 取消
+    const res = await submitFeedback(m.id, sentiment)
+    m.feedback = null
+    ElMessage.success(res.message)
+    return
+  }
+  let comment: string | undefined
+  if (sentiment === 'dislike') {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        '对回答哪里不满意？（可选）',
+        '反馈',
+        {
+          confirmButtonText: '提交',
+          cancelButtonText: '取消',
+          inputPlaceholder: '例如：答案不准确 / 来源不对',
+        },
+      )
+      comment = value?.trim() || undefined
+    } catch {
+      return // 取消输入 = 不提交
+    }
+  }
+  const res = await submitFeedback(m.id, sentiment, comment)
+  m.feedback = res.sentiment
+  ElMessage.success(res.message)
+}
+
 // 文档详情抽屉（A）：点引文看整篇
 const drawerVisible = ref(false)
 const drawerDocId = ref<number | null>(null)
@@ -30,10 +77,6 @@ function showDocument(c: Citation) {
   drawerDocId.value = c.document_id
   drawerChunkId.value = c.chunk_id
   drawerVisible.value = true
-}
-
-function toMsg(m: ChatMessageInfo): Msg {
-  return { role: m.role, content: m.content, citations: m.citations || [] }
 }
 
 async function refreshSessions() {
@@ -49,6 +92,8 @@ async function selectSession(session: ChatSessionInfo) {
   const detail = await getSession(session.id)
   currentSessionId.value = session.id
   messages.value = detail.messages.map(toMsg)
+  // 继续该会话时沿用它的知识库
+  currentKb.value = session.knowledge_base || null
 }
 
 async function newSession() {
@@ -103,10 +148,11 @@ async function send() {
           messages.value[idx].content = text
           messages.value[idx].status = ''
         },
-        onDone: async (answer, citations, noAnswer, sessionId) => {
+        onDone: async (answer, citations, noAnswer, sessionId, messageId) => {
           messages.value[idx].content = answer
           messages.value[idx].citations = citations
           messages.value[idx].status = noAnswer ? '（未找到相关资料）' : ''
+          messages.value[idx].id = messageId ?? undefined
           if (sessionId != null) currentSessionId.value = sessionId
           await refreshSessions() // 新会话出现在列表顶部/标题更新
         },
@@ -116,6 +162,7 @@ async function send() {
         },
       },
       currentSessionId.value,
+      currentKb.value,
     )
   } catch {
     messages.value[idx].status = ''
@@ -126,6 +173,11 @@ async function send() {
 }
 
 onMounted(async () => {
+  try {
+    knowledgeBases.value = await listKnowledgeBases()
+  } catch {
+    // 知识库接口失败不阻塞聊天（空 = 全部）
+  }
   await refreshSessions()
   // 刷新不丢：自动恢复最近一次会话
   if (sessions.value.length) {
@@ -156,6 +208,18 @@ onMounted(async () => {
     </aside>
 
     <div class="chat">
+      <div class="kb-bar">
+        <span class="kb-label">知识库</span>
+        <el-select v-model="currentKb" placeholder="全部知识库" clearable size="small">
+          <el-option label="全部知识库" value="" />
+          <el-option
+            v-for="kb in knowledgeBases"
+            :key="kb.id"
+            :label="`${kb.name}（${kb.department}）`"
+            :value="kb.name"
+          />
+        </el-select>
+      </div>
       <div class="messages">
         <div v-if="!messages.length" class="empty">输入问题开始问答，回答会标注来源文档</div>
         <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">
@@ -171,6 +235,24 @@ onMounted(async () => {
               @click="copyText(m.content)"
             >
               复制
+            </el-button>
+          </div>
+          <div v-if="m.role === 'assistant' && m.id" class="feedback">
+            <el-button
+              link
+              size="small"
+              :type="m.feedback === 'like' ? 'primary' : 'info'"
+              @click="onFeedback(m, 'like')"
+            >
+              有用
+            </el-button>
+            <el-button
+              link
+              size="small"
+              :type="m.feedback === 'dislike' ? 'danger' : 'info'"
+              @click="onFeedback(m, 'dislike')"
+            >
+              没用
             </el-button>
           </div>
           <div v-if="m.citations?.length" class="citations">
@@ -266,6 +348,23 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+.kb-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+}
+.kb-label {
+  font-size: 13px;
+  color: #666;
+  white-space: nowrap;
+}
+.feedback {
+  margin-top: 4px;
+  text-align: left;
 }
 .messages {
   flex: 1;

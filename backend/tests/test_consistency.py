@@ -112,6 +112,7 @@ async def test_reconcile_cleans_orphan_vectors(client):
                 "chunk_id": 999999,
                 "document_id": doc_id,
                 "department": "hr",
+                "knowledge_base": "",
                 "page_no": 0,
                 "content": "幽灵切片",
                 "vector": [0.1] * 1024,

@@ -47,7 +47,7 @@ async def _upload(client, token: str, content: str, name: str = "制度.txt"):
 
 async def _search(query: str, department: str = "hr", top_k: int = 5) -> list[dict]:
     async with AsyncSessionLocal() as db:
-        return await retrieval_service.keyword_search(db, query, department, top_k)
+        return await retrieval_service.keyword_search(db, query, department, None, top_k)
 
 
 @pytest.mark.asyncio

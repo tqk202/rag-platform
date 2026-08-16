@@ -21,6 +21,8 @@ class ChatRequest(BaseModel):
     question: str
     history: list[dict] = []  # [{"role": "user"|"assistant", "content": "..."}]
     session_id: int | None = None  # 带则追加到该会话；不带则自动新建
+    # 多知识库：指定库名则在库内检索；None = 部门内全部知识库
+    knowledge_base: str | None = None
 
     @field_validator("question")
     @classmethod
@@ -37,6 +39,7 @@ class ChatResponse(BaseModel):
     citations: list[Citation] = []
     no_answer: bool = False
     session_id: int | None = None
+    message_id: int | None = None  # 回答消息 id（前端点赞/点踩绑定）
 
 
 class ChatMessageOut(BaseModel):
@@ -63,6 +66,7 @@ class ChatSessionOut(BaseModel):
 
     id: int
     title: str
+    knowledge_base: str | None = None
     created_at: datetime
     updated_at: datetime
 

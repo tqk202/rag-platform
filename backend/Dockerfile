@@ -20,6 +20,13 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 
+# OCR（RapidOCR/opencv/onnxruntime）需要的系统库：slim 镜像默认没有。
+# 境内提速：apt 换清华源（与上方 pip 换源同理）；Debian 13 trixie 是 deb822 格式
+RUN printf 'Types: deb\nURIs: https://mirrors.tuna.tsinghua.edu.cn/debian/\nSuites: trixie trixie-updates\nComponents: main\n\nTypes: deb\nURIs: https://mirrors.tuna.tsinghua.edu.cn/debian-security/\nSuites: trixie-security\nComponents: main\n' > /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # 上传目录必须可写：预建并归 appuser（.dockerignore 排除了 data/，需自建）
 RUN useradd -m appuser \
     && mkdir -p /app/data/uploads \

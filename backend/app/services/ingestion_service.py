@@ -20,9 +20,10 @@ from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import DocStatus, Document
 from app.services import embedding_service, vector_service
-from app.services.chunker import chunk_markdown, chunk_text
+from app.services.chunker import chunk_document
 from app.services.cleaner import clean_text, should_clean
-from app.services.parsers import parse_document
+from app.services.knowledge_base_service import doc_kb_name
+from app.services.parsers import ParsedPage, parse_document
 from app.services.sparse_service import get_sparse_index
 
 logger = logging.getLogger(__name__)
@@ -45,35 +46,37 @@ async def _clear_doc_chunks(db: AsyncSession, doc_id: int) -> None:
 
 
 async def process_document(db: AsyncSession, document_id: int) -> None:
-    """处理单个文档，完整走一遍四步管线并更新状态。"""
+    """处理单个文档，完整走一遍四步管线并更新状态。
+
+    noqa: 入库四步管线阶段线性、共享 doc 状态，拆散反而难读。
+    """
     doc = await db.get(Document, document_id)
     if doc is None:
         return
+    # 多知识库：文档归属库名下沉到稀疏索引与向量元数据，检索层按它过滤
+    kb_name = await doc_kb_name(db, doc)
 
     doc.status = DocStatus.processing
     doc.failure_reason = None  # 重试时清掉上次的失败原因
     await db.commit()
 
     try:
-        # 1. 解析：文件 -> 纯文本
-        text = parse_document(doc.file_path)
+        # 1. 解析：文件 -> 分页文本（PDF 每页带真实页码，扫描件走 OCR）
+        pages = parse_document(doc.file_path)
 
-        # 1.5 可选清洗（TEXT_CLEANING=basic）：去页眉页脚残留/全角空格/行尾空白。
+        # 1.5 可选清洗（TEXT_CLEANING=basic）：逐页去页眉页脚残留/全角空格/行尾空白。
         # 默认 none 原样入库——W4 评测的脏文档故意不清洗，验证检索抗噪能力
         if should_clean():
-            text = clean_text(text)
+            pages = [ParsedPage(p.page_no, clean_text(p.text)) for p in pages]
 
-        # 2. 切片：长文本 -> 小块（Markdown 走标题感知切分，保留章节上下文）
-        if Path(doc.file_path).suffix.lower() == ".md":
-            chunks = chunk_markdown(text)
-        else:
-            chunks = chunk_text(text)
-        if not chunks:
+        # 2. 切片：按文档类型分发（标题感知/页边界/句子对齐），切片携带页码
+        pieces = chunk_document(pages, Path(doc.file_path).suffix.lower())
+        if not pieces:
             raise ValueError("解析后没有提取到任何文本")
 
         # 3. 向量化：每个切片 -> 向量
         provider = embedding_service.get_embedding_provider()
-        vectors = provider.embed_texts(chunks)
+        vectors = provider.embed_texts([p.content for p in pieces])
 
         # 4. 幂等重入：清掉上次残留的 DB 切片（重试/升版不会留下旧数据）
         await _clear_doc_chunks(db, doc.id)
@@ -82,24 +85,26 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
         # 5. 切片 + 稀疏索引同事务先提交（DB 是事实来源，状态仍 processing）
         rows: list[dict] = []
         sparse = get_sparse_index()
-        for i, content in enumerate(chunks):
+        for i, piece in enumerate(pieces):
             chunk = Chunk(
                 document_id=doc.id,
                 chunk_index=i,
-                content=content,
-                token_count=len(content),
+                content=piece.content,
+                page_no=piece.page_no,  # PDF 切片带真实页码
+                token_count=len(piece.content),
             )
             db.add(chunk)
             await db.flush()  # 拿到 chunk.id，作为 Milvus 主键
             # 同步写稀疏索引（同一事务）：正文切片与关键词索引一起提交，失败一起回滚
-            await sparse.add(db, chunk.id, doc.department, content)
+            await sparse.add(db, chunk.id, doc.department, kb_name, piece.content)
             rows.append(
                 {
                     "chunk_id": chunk.id,
                     "document_id": doc.id,
                     "department": doc.department,  # 权限过滤键（W3）
-                    "page_no": chunk.page_no or 0,  # Milvus INT32 不接受 None
-                    "content": content,
+                    "knowledge_base": kb_name or "",  # 知识库过滤键（多知识库）
+                    "page_no": piece.page_no or 0,  # Milvus INT32 不接受 None
+                    "content": piece.content,
                     "vector": vectors[i],
                 }
             )
@@ -111,9 +116,9 @@ async def process_document(db: AsyncSession, document_id: int) -> None:
 
         # 7. 全部落位后置 ready
         doc.status = DocStatus.ready
-        doc.chunk_count = len(chunks)
+        doc.chunk_count = len(pieces)
         await db.commit()
-        logger.info("文档 %s 处理完成，切片数 %s", doc.id, len(chunks))
+        logger.info("文档 %s 处理完成，切片数 %s", doc.id, len(pieces))
     except Exception as exc:
         await db.rollback()
         # 失败不留下可检索切片：清掉本次已提交的 DB 切片 + 稀疏索引

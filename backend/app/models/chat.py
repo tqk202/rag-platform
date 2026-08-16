@@ -18,6 +18,8 @@ class ChatSession(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     title: Mapped[str] = mapped_column(String(200), default="新会话")
+    # 多知识库：会话创建/提问时绑定的知识库名（快照，不随库改名漂移）
+    knowledge_base: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     messages: Mapped[list["ChatMessage"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"

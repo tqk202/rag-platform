@@ -68,7 +68,7 @@ async def test_lookup_miss_when_cache_empty():
 @pytest.mark.asyncio
 async def test_store_then_exact_hit():
     citations = [_citation(1)]
-    await answer_cache.store("如何报销？", "hr", "回答内容", citations, False)
+    await answer_cache.store("如何报销？", "hr", None, "回答内容", citations, False)
     hit = await answer_cache.lookup("如何报销？", "hr")
     assert hit is not None
     assert hit["answer"] == "回答内容"
@@ -79,7 +79,7 @@ async def test_store_then_exact_hit():
 @pytest.mark.asyncio
 async def test_different_question_misses():
     """mock 嵌入是哈希随机向量：不同问法余弦≈0，低于阈值自然 miss。"""
-    await answer_cache.store("如何报销？", "hr", "回答", [], False)
+    await answer_cache.store("如何报销？", "hr", None, "回答", [], False)
     assert await answer_cache.lookup("如何请假？", "hr") is None
 
 
@@ -90,7 +90,7 @@ async def test_semantic_hit_for_rephrased_question(monkeypatch):
     norm = math.sqrt(sum(x * x for x in vec))
     monkeypatch.setattr(answer_cache, "_embed", lambda q: [x / norm for x in vec])
 
-    await answer_cache.store("天气怎么样？", "hr", "回答A", [], False)
+    await answer_cache.store("天气怎么样？", "hr", None, "回答A", [], False)
     hit = await answer_cache.lookup("今天天气如何？", "hr")
     assert hit is not None
     assert hit["answer"] == "回答A"
@@ -98,7 +98,7 @@ async def test_semantic_hit_for_rephrased_question(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_version_bump_invalidates_old_answer():
-    await answer_cache.store("如何报销？", "hr", "旧回答", [], False)
+    await answer_cache.store("如何报销？", "hr", None, "旧回答", [], False)
     assert await answer_cache.lookup("如何报销？", "hr") is not None
     await answer_cache.bump_version("hr")
     assert await answer_cache.lookup("如何报销？", "hr") is None
@@ -106,14 +106,14 @@ async def test_version_bump_invalidates_old_answer():
 
 @pytest.mark.asyncio
 async def test_department_isolation():
-    await answer_cache.store("如何报销？", "hr", "hr的回答", [], False)
+    await answer_cache.store("如何报销？", "hr", None, "hr的回答", [], False)
     assert await answer_cache.lookup("如何报销？", "finance") is None
 
 
 @pytest.mark.asyncio
 async def test_disabled_returns_miss_and_skips_store(monkeypatch):
     monkeypatch.setattr(settings, "ANSWER_CACHE_ENABLED", False)
-    await answer_cache.store("问题", "hr", "回答", [], False)  # 应 no-op
+    await answer_cache.store("问题", "hr", None, "回答", [], False)  # 应 no-op
     assert await answer_cache.lookup("问题", "hr") is None
 
 

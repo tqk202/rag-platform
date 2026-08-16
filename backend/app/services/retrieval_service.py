@@ -28,16 +28,32 @@ settings = get_settings()
 RRF_K = 60  # RRF 平滑常数（标准值），避免分母为 0 并削弱排名靠后结果的贡献
 
 
+def _dense_filter(department: str, knowledge_base: str | None) -> str:
+    """构造 Milvus 过滤表达式：部门 + 可选知识库，双层权限隔离在检索层完成。
+    值统一走 quote_filter 单引号包裹（双引号内写中文 Milvus 解析失败）。"""
+    if knowledge_base:
+        # 用 && 而非 AND：pymilvus 3.0.1 解析大写 AND 失败（invalid expression），&& 是官方等价写法
+        return (
+            f"department == {vector_service.quote_filter(department)} "
+            f"&& knowledge_base == {vector_service.quote_filter(knowledge_base)}"
+        )
+    return f"department == {vector_service.quote_filter(department)}"
+
+
 async def vector_search(
-    db: AsyncSession, query: str, department: str, top_k: int
+    db: AsyncSession,
+    query: str,
+    department: str,
+    knowledge_base: str | None,
+    top_k: int,
 ) -> list[dict[str, Any]]:
-    """Dense 召回：向量相似度检索，Milvus 上做部门过滤。"""
+    """Dense 召回：向量相似度检索，Milvus 上做部门/知识库过滤。"""
     provider = embedding_service.get_embedding_provider()
     query_vec = provider.embed_texts([query])[0]
 
     hits = vector_service.vector_store.search(
         query_vector=query_vec,
-        filter_expr=f'department == "{department}"',
+        filter_expr=_dense_filter(department, knowledge_base),
         top_k=top_k,
         output_fields=["chunk_id", "document_id", "department", "page_no", "content"],
     )
@@ -58,14 +74,18 @@ async def vector_search(
 
 
 async def keyword_search(
-    db: AsyncSession, query: str, department: str, top_k: int
+    db: AsyncSession,
+    query: str,
+    department: str,
+    knowledge_base: str | None,
+    top_k: int,
 ) -> list[dict[str, Any]]:
-    """Sparse 召回：数据库倒排索引（SQLite FTS5 / PG tsvector），SQL 层按部门过滤。
+    """Sparse 召回：数据库倒排索引（SQLite FTS5 / PG tsvector），SQL 层按部门/知识库过滤。
 
     相比旧的「全表 select + 内存 BM25（O(N)）」：全文检索走索引 O(log N)，
     文档量增长不再线性劣化。只返回至少命中一个查询词的切片（无需再过滤零命中）。
     """
-    hits = await get_sparse_index().search(db, query, department, top_k)
+    hits = await get_sparse_index().search(db, query, department, knowledge_base, top_k)
     if not hits:
         return []
 
@@ -93,15 +113,19 @@ async def keyword_search(
 
 
 async def hybrid_search(
-    db: AsyncSession, query: str, department: str, top_k: int = 5
+    db: AsyncSession,
+    query: str,
+    department: str,
+    knowledge_base: str | None = None,
+    top_k: int = 5,
 ) -> list[dict[str, Any]]:
     """混合检索：双路召回 + RRF 融合 + 统一补全文档标题。
 
     RRF（Reciprocal Rank Fusion）：score(c) = Σ 1 / (k + rank_c)
     用"排名"而非"分数"融合，因为不同检索器的分数不可直接比较。
     """
-    vector_hits = await vector_search(db, query, department, top_k)
-    keyword_hits = await keyword_search(db, query, department, top_k)
+    vector_hits = await vector_search(db, query, department, knowledge_base, top_k)
+    keyword_hits = await keyword_search(db, query, department, knowledge_base, top_k)
 
     # 按 chunk_id 融合两路排名
     fused: dict[int, float] = {}

@@ -14,9 +14,14 @@ export function listDocuments(page = 1, pageSize = 20) {
     .then((r) => r.data)
 }
 
-export function uploadDocument(file: File, onProgress?: (percent: number) => void) {
+export function uploadDocument(
+  file: File,
+  onProgress?: (percent: number) => void,
+  knowledgeBase?: string,
+) {
   const form = new FormData()
   form.append('file', file)
+  if (knowledgeBase) form.append('knowledge_base', knowledgeBase)
   return http
     .post<{ document_id: number; message: string }>('/documents/upload', form, {
       onUploadProgress: (e) => {

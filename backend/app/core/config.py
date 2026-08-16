@@ -47,10 +47,17 @@ class Settings(BaseSettings):
     RERANKER_API_KEY: str = ""
     RERANKER_MODEL: str = "BAAI/bge-reranker-v2-m3"
 
-    # 文档处理（W1）
-    CHUNK_SIZE: int = 500            # 每块字符数，W4 消融实验会调它
-    CHUNK_OVERLAP: int = 50          # 块间重叠，避免语义被切断
+    # 文档处理（W1）：CHUNK_SIZE/CHUNK_OVERLAP 是通用默认（回退值），
+    # 各格式有自己的最优大小——Markdown 标题感知（技术文档大），PDF/DOCX 正式文档偏小
+    CHUNK_SIZE: int = 500            # 通用默认每块字符数（回退值）
+    CHUNK_OVERLAP: int = 50          # 通用默认块间重叠（回退值，类型化时按 1/5 自动算）
+    CHUNK_SIZE_MD: int = 800         # Markdown：标题感知切分（技术文档 600-1000）
+    CHUNK_SIZE_PDF: int = 600        # PDF：以页为界优先（正式文档）
+    CHUNK_SIZE_DOCX: int = 600       # DOCX：段落感知（合同/正式文档 400-600）
+    CHUNK_SIZE_TXT: int = 500        # 纯文本：通用句子对齐（保留原默认）
     TEXT_CLEANING: str = "none"      # none(原样入库) | basic(保守清洗:页眉残留/全角空格/行尾空白)
+    OCR_BACKEND: str = "none"        # none(不启用) | rapidocr(扫描版 PDF OCR)
+    OCR_MIN_TEXT_CHARS: int = 5      # 扫描页判定：单页有效文本低于该字符数（空页/纯页码页）才走 OCR
     EMBEDDING_BACKEND: str = "mock"  # mock(当前) | api | local
     EMBEDDING_DIM: int = 1024        # bge-m3 输出维度
     INGESTION_MODE: str = "async"    # async(Celery生产) | inline(开发直接处理)
@@ -65,6 +72,9 @@ class Settings(BaseSettings):
     RERANK_RECALL_K: int = 20          # 召回宽度：先召回 N 条再交给重排
     RERANK_TOP_N: int = 5              # 重排后取前 N 条给 LLM
     CITATION_MIN_SCORE_RATIO: float = 0.5  # 引文过滤：重排分低于最强引文该比例者剔除（只留强相关）
+
+    # 查询改写：off(默认,不改写,评测基线稳定) | rule(纯规则,零成本) | llm(LLM 改写,mock 兜底回退规则)
+    QUERY_REWRITE: str = "off"
 
     # 上下文预算（P1-6）：LLM 每次调用都花钱，检索结果按 token 预算动态截断，
     # 防长文档上下文溢出 + 成本失控；输出也设上限

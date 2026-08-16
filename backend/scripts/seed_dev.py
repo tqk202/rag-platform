@@ -27,6 +27,7 @@ from app.core.security import hash_password  # noqa: E402
 from app.db.session import AsyncSessionLocal, engine  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.document import DocStatus, Document  # noqa: E402
+from app.models.knowledge_base import KnowledgeBase  # noqa: E402
 from app.models.user import Role, User  # noqa: E402
 from app.services.ingestion_service import compute_content_hash, process_document  # noqa: E402
 from app.services.sparse_service import get_sparse_index  # noqa: E402
@@ -65,6 +66,15 @@ async def main() -> None:
         await db.flush()
         mgr_id = {u.username: u.id for u in users}["mgr_hr"]
 
+        # 2.5 多知识库：hr 部门默认知识库，演示文档全部归属它
+        kb = KnowledgeBase(
+            name="人力资源制度库",
+            department="hr",
+            description="演示：人力资源相关制度文档",
+        )
+        db.add(kb)
+        await db.flush()
+
         # 3. 演示文档走完整管线（parse -> chunk -> 真实嵌入 -> 入库）
         for path in DEMO_DOCS:
             raw = path.read_bytes()
@@ -75,6 +85,7 @@ async def main() -> None:
                 content_hash=compute_content_hash(raw),
                 status=DocStatus.pending,
                 department="hr",
+                knowledge_base_id=kb.id,
                 owner_id=mgr_id,
             )
             db.add(doc)

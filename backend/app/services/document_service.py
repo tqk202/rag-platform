@@ -5,6 +5,7 @@ from pathlib import Path
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.exceptions import AppError, NotFoundError, PermissionDeniedError
@@ -15,6 +16,7 @@ from app.schemas.common import Page
 from app.schemas.document import ChunkOut, DocumentDetail, DocumentOut, UploadResponse
 from app.services import answer_cache, audit_service
 from app.services.ingestion_service import compute_content_hash
+from app.services.knowledge_base_service import doc_kb_name, resolve_kb_entity
 from app.services.sparse_service import get_sparse_index
 from app.services.vector_service import vector_store
 
@@ -76,6 +78,11 @@ async def _delete_doc_chunks(db: AsyncSession, doc_id: int) -> list[int]:
     return chunk_ids
 
 
+async def _bump_cache(db: AsyncSession, doc: Document) -> None:
+    """文档变更后作废旧回答缓存：带知识库名（跨库缓存一并失效）。"""
+    await answer_cache.bump_version(doc.department, await doc_kb_name(db, doc))
+
+
 async def _finish_processing(db: AsyncSession, doc: Document) -> UploadResponse:
     """处理新内容：生产投递 Celery，开发 inline 直接处理。"""
     if settings.INGESTION_MODE == "inline":
@@ -132,7 +139,7 @@ async def _update_document_version(
     )
     await db.commit()
     await db.refresh(doc)
-    await answer_cache.bump_version(doc.department)  # W11: 知识库已变，旧回答缓存作废
+    await _bump_cache(db, doc)  # W11: 知识库已变，旧回答缓存作废
     # Milvus 旧行先清（best-effort），残余交给对账任务收敛
     try:
         vector_store.delete_by_chunk_ids(chunk_ids)
@@ -145,7 +152,11 @@ async def _update_document_version(
 
 
 async def upload_document(
-    db: AsyncSession, user: User, file, department: str | None = None
+    db: AsyncSession,
+    user: User,
+    file,
+    department: str | None = None,
+    knowledge_base: str | None = None,
 ) -> UploadResponse:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -158,6 +169,8 @@ async def upload_document(
     content_hash = compute_content_hash(content)
 
     target_dept = _resolve_upload_department(user, department)
+    # 多知识库：显式指定则校验归属+启用，否则落到部门默认库
+    kb = await resolve_kb_entity(db, target_dept, knowledge_base)
 
     # 同部门同文件名 = 版本更新（重新上传新版本文档）
     existing = await db.scalar(
@@ -189,6 +202,7 @@ async def upload_document(
         content_hash=content_hash,
         status=DocStatus.pending,
         department=target_dept,
+        knowledge_base_id=kb.id if kb else None,
         owner_id=user.id,
     )
     db.add(doc)
@@ -216,7 +230,7 @@ async def upload_document(
     )
     await db.commit()
     await db.refresh(doc)
-    await answer_cache.bump_version(target_dept)  # W11: 知识库已变，旧回答缓存作废
+    await _bump_cache(db, doc)  # W11: 知识库已变，旧回答缓存作废
 
     result = await _finish_processing(db, doc)
     result.message = f"上传成功，{result.message}"
@@ -226,7 +240,7 @@ async def upload_document(
 async def list_documents(
     db: AsyncSession, user: User, page: int, page_size: int
 ) -> Page[DocumentOut]:
-    stmt = select(Document)
+    stmt = select(Document).options(selectinload(Document.knowledge_base))
     if user.role != Role.admin:
         stmt = stmt.where(Document.department == user.department)
 
@@ -249,7 +263,7 @@ async def get_document_detail(
     db: AsyncSession, user: User, doc_id: int
 ) -> DocumentDetail:
     """文档详情：元信息 + 按序切片全文。部门隔离——非管理员只能看本部门。"""
-    doc = await db.get(Document, doc_id)
+    doc = await db.get(Document, doc_id, options=[selectinload(Document.knowledge_base)])
     if doc is None:
         raise NotFoundError("文档不存在")
     if user.role != Role.admin and doc.department != user.department:
@@ -288,7 +302,7 @@ async def retry_document(
     )
     await db.commit()
     await db.refresh(doc)
-    await answer_cache.bump_version(doc.department)  # W11: 重试可能产出新内容，旧回答缓存作废
+    await _bump_cache(db, doc)  # W11: 重试可能产出新内容，旧回答缓存作废
 
     result = await _finish_processing(db, doc)
     result.message = f"已重新提交处理，{result.message}"
@@ -310,9 +324,12 @@ async def delete_document(db: AsyncSession, user: User, doc_id: int) -> None:
         object_type="document", object_id=doc.id,
         detail=f"删除 {doc.file_name}（第 {doc.version} 版）",
     )
+    # 删除前先取部门 + 知识库名（删后 commit 会过期 doc 属性，不能再读）
+    dept = doc.department
+    kb_name = await doc_kb_name(db, doc)
     await db.delete(doc)
     await db.commit()
-    await answer_cache.bump_version(doc.department)  # W11: 文档被删，旧回答缓存作废
+    await answer_cache.bump_version(dept, kb_name)  # W11: 文档被删，旧回答缓存作废
     try:
         vector_store.delete_by_chunk_ids(chunk_ids)
     except Exception:

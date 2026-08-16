@@ -41,14 +41,21 @@ class SparseIndex:
     async def ensure(self, db) -> None:
         raise NotImplementedError
 
-    async def add(self, db, chunk_id: int, department: str, content: str) -> None:
+    async def add(
+        self, db, chunk_id: int, department: str, knowledge_base: str | None, content: str
+    ) -> None:
         raise NotImplementedError
 
     async def remove(self, db, chunk_ids: list[int]) -> None:
         raise NotImplementedError
 
     async def search(
-        self, db, query: str, department: str, top_k: int
+        self,
+        db,
+        query: str,
+        department: str,
+        knowledge_base: str | None,
+        top_k: int,
     ) -> list[dict]:
         """返回 [{chunk_id, score}]，按相关度降序。score 越大越相关。"""
         raise NotImplementedError
@@ -67,8 +74,8 @@ class SQLiteFTS5Index(SparseIndex):
         await db.execute(
             text(
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS {FTS_TABLE} USING fts5("
-                "chunk_id UNINDEXED, department UNINDEXED, tokens, "
-                "tokenize='unicode61')"
+                "chunk_id UNINDEXED, department UNINDEXED, knowledge_base UNINDEXED, "
+                "tokens, tokenize='unicode61')"
             )
         )
         self._ensured = True
@@ -77,14 +84,21 @@ class SQLiteFTS5Index(SparseIndex):
         # FTS5 查询语法：双引号括词避免保留字（OR/AND/NOT）冲突，词间 OR 召回广
         return " OR ".join(f'"{t}"' for t in tokens.split())
 
-    async def add(self, db, chunk_id: int, department: str, content: str) -> None:
+    async def add(
+        self, db, chunk_id: int, department: str, knowledge_base: str | None, content: str
+    ) -> None:
         await self.ensure(db)
         await db.execute(
             text(
-                f"INSERT INTO {FTS_TABLE} (chunk_id, department, tokens) "
-                "VALUES (:cid, :dept, :tokens)"
+                f"INSERT INTO {FTS_TABLE} (chunk_id, department, knowledge_base, tokens) "
+                "VALUES (:cid, :dept, :kb, :tokens)"
             ),
-            {"cid": chunk_id, "dept": department, "tokens": _join_tokens(content)},
+            {
+                "cid": chunk_id,
+                "dept": department,
+                "kb": knowledge_base or "",
+                "tokens": _join_tokens(content),
+            },
         )
 
     async def remove(self, db, chunk_ids: list[int]) -> None:
@@ -97,21 +111,26 @@ class SQLiteFTS5Index(SparseIndex):
         await db.execute(stmt, {"ids": chunk_ids})
 
     async def search(
-        self, db, query: str, department: str, top_k: int
+        self, db, query: str, department: str, knowledge_base: str | None, top_k: int
     ) -> list[dict]:
         await self.ensure(db)
         tokens = _join_tokens(query)
         if not tokens:
             return []
+        params: dict = {"q": self._match_query(tokens), "dept": department, "limit": top_k}
+        kb_filter = ""
+        if knowledge_base:
+            kb_filter = " AND knowledge_base = :kb"
+            params["kb"] = knowledge_base
         rows = (
             await db.execute(
                 text(
                     f"SELECT chunk_id, -bm25({FTS_TABLE}) AS score "
                     f"FROM {FTS_TABLE} "
-                    f"WHERE {FTS_TABLE} MATCH :q AND department = :dept "
+                    f"WHERE {FTS_TABLE} MATCH :q AND department = :dept{kb_filter} "
                     f"ORDER BY score DESC LIMIT :limit"
                 ),
-                {"q": self._match_query(tokens), "dept": department, "limit": top_k},
+                params,
             )
         ).all()
         return [{"chunk_id": r[0], "score": float(r[1])} for r in rows]
@@ -133,6 +152,7 @@ class PostgresTSVIndex(SparseIndex):
                 f"CREATE TABLE IF NOT EXISTS {FTS_TABLE} ("
                 "chunk_id BIGINT PRIMARY KEY, "
                 "department TEXT NOT NULL, "
+                "knowledge_base TEXT NOT NULL DEFAULT '', "
                 "tokens TEXT NOT NULL)"
             )
         )
@@ -151,14 +171,21 @@ class PostgresTSVIndex(SparseIndex):
         # 实测 websearch_to_tsquery('simple', '一线 OR 城市') 正确生成 '一线' | '城市'。
         return tokens.replace(" ", " OR ")
 
-    async def add(self, db, chunk_id: int, department: str, content: str) -> None:
+    async def add(
+        self, db, chunk_id: int, department: str, knowledge_base: str | None, content: str
+    ) -> None:
         await self.ensure(db)
         await db.execute(
             text(
-                f"INSERT INTO {FTS_TABLE} (chunk_id, department, tokens) "
-                "VALUES (:cid, :dept, :tokens)"
+                f"INSERT INTO {FTS_TABLE} (chunk_id, department, knowledge_base, tokens) "
+                "VALUES (:cid, :dept, :kb, :tokens)"
             ),
-            {"cid": chunk_id, "dept": department, "tokens": _join_tokens(content)},
+            {
+                "cid": chunk_id,
+                "dept": department,
+                "kb": knowledge_base or "",
+                "tokens": _join_tokens(content),
+            },
         )
 
     async def remove(self, db, chunk_ids: list[int]) -> None:
@@ -171,23 +198,28 @@ class PostgresTSVIndex(SparseIndex):
         await db.execute(stmt, {"ids": chunk_ids})
 
     async def search(
-        self, db, query: str, department: str, top_k: int
+        self, db, query: str, department: str, knowledge_base: str | None, top_k: int
     ) -> list[dict]:
         await self.ensure(db)
         tokens = _join_tokens(query)
         if not tokens:
             return []
         q = self._ts_query(tokens)
+        params: dict = {"q": q, "dept": department, "limit": top_k}
+        kb_filter = ""
+        if knowledge_base:
+            kb_filter = " AND knowledge_base = :kb"
+            params["kb"] = knowledge_base
         rows = (
             await db.execute(
                 text(
                     f"SELECT chunk_id, ts_rank(to_tsvector('simple', tokens), "
                     f"websearch_to_tsquery('simple', :q)) AS score FROM {FTS_TABLE} "
                     f"WHERE to_tsvector('simple', tokens) @@ "
-                    f"websearch_to_tsquery('simple', :q) AND department = :dept "
+                    f"websearch_to_tsquery('simple', :q) AND department = :dept{kb_filter} "
                     f"ORDER BY score DESC LIMIT :limit"
                 ),
-                {"q": q, "dept": department, "limit": top_k},
+                params,
             )
         ).all()
         return [{"chunk_id": r[0], "score": float(r[1])} for r in rows]

@@ -15,6 +15,8 @@ settings = get_settings()
 
 # 页眉页脚残留：如「第 1 页 共 7 页」「第 3 页，共 12 页」独占一行
 PAGE_FOOTER_RE = re.compile(r"^\s*第\s*\d+\s*页[，,、]?\s*共\s*\d+\s*页.*$", re.MULTILINE)
+# 英文页码残留：Page 1 of 5 / Page 1/5 / Page 5 独占一行（PDF 导出常见页脚）
+PAGE_FOOTER_EN_RE = re.compile(r"^\s*page\s*\d+\s*(of|/|-)\s*\d+\s*$", re.MULTILINE | re.IGNORECASE)
 
 # 连续空行（含纯空白行）压成单个空行
 BLANK_LINES_RE = re.compile(r"\n[ \t]*\n[ \t]*\n+")
@@ -28,6 +30,7 @@ def clean_text(text: str) -> str:
     全部规则都只改"格式"，不改正文文字，重复调用结果不变（幂等）。
     """
     text = PAGE_FOOTER_RE.sub("", text)
+    text = PAGE_FOOTER_EN_RE.sub("", text)
     text = text.replace(FULL_WIDTH_SPACE, " ")
     lines = [line.rstrip() for line in text.splitlines()]
     text = "\n".join(lines)

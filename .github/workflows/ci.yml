@@ -78,7 +78,8 @@ jobs:
           con = sqlite3.connect("data/ci_alembic.db")
           rows = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
           expected = {"users", "documents", "chunks", "chat_sessions", "chat_messages",
-                      "audit_logs", "chunks_fts", "alembic_version"}
+                      "audit_logs", "knowledge_bases", "answer_feedback", "query_traces",
+                      "chunks_fts", "alembic_version"}
           missing = expected - rows
           assert not missing, f"迁移后缺表: {missing}"
           print("迁移后全部预期表存在 OK")

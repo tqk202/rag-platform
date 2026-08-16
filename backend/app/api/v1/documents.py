@@ -22,8 +22,9 @@ async def upload(
     _guard: Annotated[User, Depends(require_role(Role.manager, Role.admin))],
     file: UploadFile = File(...),
     department: str | None = Form(None, description="目标部门，仅管理员可指定"),
+    knowledge_base: str | None = Form(None, description="目标知识库名，不填用部门默认库"),
 ) -> UploadResponse:
-    return await document_service.upload_document(db, user, file, department)
+    return await document_service.upload_document(db, user, file, department, knowledge_base)
 
 
 @router.get("", response_model=Page[DocumentOut], summary="文档列表")

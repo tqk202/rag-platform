@@ -22,7 +22,7 @@ from app.core.config import get_settings
 from app.core.kv import CacheKV, build_default_kv
 from app.schemas.chat import Citation
 from app.services.embedding_service import get_embedding_provider
-from app.services.vector_service import vector_store
+from app.services.vector_service import quote_filter, vector_store
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -38,19 +38,26 @@ def _kv_store() -> CacheKV:
     return _kv_holder["kv"]
 
 
-def _cache_key(question: str, department: str) -> str:
+def _cache_key(question: str, department: str, knowledge_base: str = "") -> str:
     digest = hashlib.sha1(question.encode("utf-8")).hexdigest()[:16]
-    return f"ans:{department}:{digest}"
+    return f"ans:{department}:{knowledge_base}:{digest}"
 
 
-def _version_key(department: str) -> str:
-    return f"kv:{department}"
+def _version_key(department: str, knowledge_base: str | None = None) -> str:
+    return f"kv:{department}:{knowledge_base or ''}"
 
 
 def _ensure_question_collection() -> None:
     client = vector_store.client
     if client.has_collection(Q_COLLECTION):
-        return
+        # 多知识库 schema 升级：集合缺 knowledge_base 字段则自愈重建
+        desc = client.describe_collection(Q_COLLECTION)
+        fields = desc.get("fields", [])
+        if all(f.get("name") != "knowledge_base" for f in fields):
+            logger.warning("问句缓存集合 %s 缺 knowledge_base 字段，重建", Q_COLLECTION)
+            client.drop_collection(Q_COLLECTION)
+        else:
+            return
     from pymilvus import DataType, MilvusClient
 
     schema = MilvusClient.create_schema(auto_id=False)
@@ -58,6 +65,7 @@ def _ensure_question_collection() -> None:
         field_name="cache_key", datatype=DataType.VARCHAR, max_length=128, is_primary=True
     )
     schema.add_field(field_name="department", datatype=DataType.VARCHAR, max_length=64)
+    schema.add_field(field_name="knowledge_base", datatype=DataType.VARCHAR, max_length=64)
     schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=settings.EMBEDDING_DIM)
     index_params = MilvusClient.prepare_index_params()
     index_params.add_index(field_name="vector", index_type="AUTOINDEX", metric_type="COSINE")
@@ -71,22 +79,28 @@ def _embed(question: str) -> list[float]:
     return get_embedding_provider().embed_texts([question])[0]
 
 
-async def _current_version(department: str) -> int:
-    raw = await _kv_store().get(_version_key(department))
+async def _current_version(department: str, knowledge_base: str | None = None) -> int:
+    raw = await _kv_store().get(_version_key(department, knowledge_base))
     return int(raw or 0)
 
 
-async def lookup(question: str, department: str) -> dict | None:
+async def lookup(
+    question: str, department: str, knowledge_base: str | None = None
+) -> dict | None:
     """按问句找已缓存回答；miss 返回 None。任何异常都 fail-open 成 miss。"""
     if not settings.ANSWER_CACHE_ENABLED:
         return None
     try:
         _ensure_question_collection()
         vector_store.client.load_collection(Q_COLLECTION)
+        kb = knowledge_base or ""
         hits = vector_store.client.search(
             collection_name=Q_COLLECTION,
             data=[_embed(question)],
-            filter=f'department == "{department}"',
+            filter=(
+                f"department == {quote_filter(department)} "
+                f"&& knowledge_base == {quote_filter(kb)}"
+            ),
             limit=1,
             output_fields=["cache_key"],
         )[0]
@@ -99,7 +113,7 @@ async def lookup(question: str, department: str) -> dict | None:
             vector_store.client.delete(collection_name=Q_COLLECTION, ids=[key])
             return None
         data = json.loads(payload)
-        if data["doc_version"] != await _current_version(department):
+        if data["doc_version"] != await _current_version(department, knowledge_base):
             return None  # 文档集已变，旧回答作废
         return data
     except Exception:
@@ -110,6 +124,7 @@ async def lookup(question: str, department: str) -> dict | None:
 async def store(
     question: str,
     department: str,
+    knowledge_base: str | None,
     answer: str,
     citations: list[Citation],
     no_answer: bool,
@@ -118,13 +133,14 @@ async def store(
     if not settings.ANSWER_CACHE_ENABLED:
         return
     try:
-        key = _cache_key(question, department)
+        kb = knowledge_base or ""
+        key = _cache_key(question, department, kb)
         payload = json.dumps(
             {
                 "answer": answer,
                 "citations": [c.model_dump() for c in citations],
                 "no_answer": no_answer,
-                "doc_version": await _current_version(department),
+                "doc_version": await _current_version(department, knowledge_base),
             },
             ensure_ascii=False,
         )
@@ -136,17 +152,27 @@ async def store(
         vector_store.client.insert(
             collection_name=Q_COLLECTION,
             data=[
-                {"cache_key": key, "department": department, "vector": _embed(question)}
+                {
+                    "cache_key": key,
+                    "department": department,
+                    "knowledge_base": kb,
+                    "vector": _embed(question),
+                }
             ],
         )
     except Exception:
         logger.exception("回答缓存写入失败，跳过缓存")
 
 
-async def bump_version(department: str) -> None:
-    """文档集变更时 +1，旧缓存查回时版本不一致自动 miss。异常不影响主链路。"""
+async def bump_version(department: str, knowledge_base: str | None = None) -> None:
+    """文档集变更时 +1，旧缓存查回时版本不一致自动 miss。异常不影响主链路。
+
+    指定知识库时连同部门级（跨库）缓存一起失效——跨库回答依赖所有库的文档。
+    """
     try:
-        await _kv_store().incr(_version_key(department))
+        await _kv_store().incr(_version_key(department, knowledge_base))
+        if knowledge_base:
+            await _kv_store().incr(_version_key(department, None))
     except Exception:
         logger.exception("知识库版本号递增失败，缓存可能短暂过期")
 

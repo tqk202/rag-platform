@@ -61,7 +61,7 @@ async def test_generate_includes_history():
     roles = [m["role"] for m in seen["payload"]["messages"]]
     assert roles == ["system", "user", "assistant", "user"]
     assert seen["payload"]["messages"][1]["content"] == "报销怎么走？"
-    assert seen["payload"]["messages"][-1]["content"].startswith("资料：")
+    assert seen["payload"]["messages"][-1]["content"].startswith("请阅读以下资料")
 
 
 @pytest.mark.asyncio

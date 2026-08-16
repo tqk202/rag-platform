@@ -59,3 +59,13 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 @app.get("/health", tags=["health"], summary="健康检查")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+# Prometheus 指标：HTTP 层由 instrumentator 自动打点，业务指标在 app/core/metrics.py
+# 自定义埋点。排除健康检查/文档端点避免噪音；/metrics 自身默认排除。
+# 注：instrumentator v8 起排除项按路径正则匹配（excluded_handlers）。
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
+
+Instrumentator(
+    excluded_handlers=[r"^/health$", r"^/docs", r"^/redoc", r"^/openapi.json"]
+).instrument(app).expose(app)

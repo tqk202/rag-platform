@@ -37,6 +37,7 @@ async def save_exchange(
     answer: str,
     citations: list[Citation],
     no_answer: bool,
+    knowledge_base: str | None = None,
 ) -> ChatSession:
     """把一问一答写入（或新建）会话，返回会话。"""
     if session_id is not None:
@@ -45,6 +46,8 @@ async def save_exchange(
         session = ChatSession(user_id=user.id, title=_first_question_title(question))
         db.add(session)
         await db.flush()
+    # 多知识库：会话记录当前知识库快照（同一会话中途切换库也能追溯）
+    session.knowledge_base = knowledge_base
 
     db.add(
         ChatMessage(
@@ -71,6 +74,19 @@ async def save_exchange(
     await db.commit()
     await db.refresh(session)
     return session
+
+
+async def last_assistant_message_id(db: AsyncSession, session_id: int) -> int | None:
+    """会话最后一条 assistant 消息 id（前端点赞/点踩要绑定到具体回答）。"""
+    return await db.scalar(
+        select(ChatMessage.id)
+        .where(
+            ChatMessage.session_id == session_id,
+            ChatMessage.role == "assistant",
+        )
+        .order_by(ChatMessage.id.desc())
+        .limit(1)
+    )
 
 
 async def list_sessions(db: AsyncSession, user: User) -> list[ChatSession]:

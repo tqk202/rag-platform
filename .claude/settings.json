@@ -4,7 +4,12 @@
       "Bash(docker compose *)",
       "Bash(.venv/Scripts/python -m pip install --quiet rank-bm25 jieba)",
       "Bash(.venv/Scripts/python -c \"import rank_bm25, jieba; print\\('rank-bm25 ok, jieba', jieba.__version__\\)\")",
-      "Bash(.venv/Scripts/python -c ' *)"
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(.venv/Scripts/python -m alembic init -t async alembic)",
+      "Bash(.venv/Scripts/python -m ruff check app tests scripts alembic --fix)",
+      "Bash(.venv/Scripts/python -m ruff check app tests scripts alembic)",
+      "Bash(DATABASE_URL=\"sqlite+aiosqlite:///./data/test_migrate.db\" .venv/Scripts/python -m alembic downgrade base)",
+      "Bash(DATABASE_URL=\"sqlite+aiosqlite:///./data/test_migrate.db\" .venv/Scripts/python -m alembic upgrade head)"
     ]
   }
 }

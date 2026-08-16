@@ -1,0 +1,33 @@
+# 轻量告警规则（无 Alertmanager，告警在 Prometheus UI「Alerts」页查看）：
+#   - 后端掉线
+#   - 后端 5xx 占比过高（HTTP 指标由 prometheus-fastapi-instrumentator 暴露）
+#   - LLM 调用失败率过高（rag_llm_errors_total / rag_llm_calls_total）
+groups:
+  - name: rag-platform
+    rules:
+      - alert: BackendDown
+        expr: up{job="rag-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "后端服务不可达"
+
+      - alert: High5xxRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "后端 5xx 错误率超过 5%（近 5 分钟）"
+
+      - alert: LLMErrorRateHigh
+        expr: |
+          (rate(rag_llm_errors_total[5m]) / clamp_min(rate(rag_llm_calls_total[5m]), 1)) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM 调用失败率超过 20%（近 5 分钟）"

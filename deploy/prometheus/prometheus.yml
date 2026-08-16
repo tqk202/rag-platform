@@ -1,0 +1,13 @@
+# Prometheus 抓取配置：只抓后端 /metrics（HTTP 指标 + rag_* 业务指标）。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: rag-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]

@@ -131,6 +131,8 @@ services:
       EMBEDDING_BACKEND: api
       RERANKER_BACKEND: api
       LLM_BACKEND: api
+      # 生产强制清洗：页眉页脚/全角空格等（覆盖 .env 的 none；评测库另设 none 保基线）
+      TEXT_CLEANING: basic
     ports:
       - "8000:8000"
     volumes:
@@ -173,6 +175,7 @@ services:
       EMBEDDING_BACKEND: api
       RERANKER_BACKEND: api
       LLM_BACKEND: api
+      TEXT_CLEANING: basic
     volumes:
       - uploads_data:/app/data/uploads
     command: celery -A app.tasks.celery_app worker --loglevel=info
@@ -192,9 +195,32 @@ services:
     depends_on:
       - backend
 
+  # ---------- 监控：Prometheus 采集后端 /metrics（轻量，无 Grafana/Alertmanager）----------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: rag-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   pg_data:
   etcd_data:
   minio_data:
   milvus_data:
   uploads_data:
+  prometheus_data:

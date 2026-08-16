@@ -10,17 +10,42 @@ export function chat(
   question: string,
   history: Array<{ role: string; content: string }> = [],
   sessionId?: number | null,
+  knowledgeBase?: string | null,
 ) {
   return http
-    .post<ChatResponse>('/chat', { question, history, session_id: sessionId })
+    .post<ChatResponse>('/chat', {
+      question,
+      history,
+      session_id: sessionId,
+      knowledge_base: knowledgeBase,
+    })
     .then((r) => r.data)
 }
 
 export interface StreamCallbacks {
   onMeta?: (chunkCount: number) => void
   onDelta?: (fullText: string) => void
-  onDone?: (answer: string, citations: Citation[], noAnswer: boolean, sessionId?: number | null) => void
+  onDone?: (
+    answer: string,
+    citations: Citation[],
+    noAnswer: boolean,
+    sessionId?: number | null,
+    messageId?: number | null,
+  ) => void
   onError?: (detail: string) => void
+}
+
+export function submitFeedback(
+  messageId: number,
+  sentiment: 'like' | 'dislike',
+  comment?: string,
+) {
+  return http
+    .post<{ sentiment: 'like' | 'dislike' | null; message: string }>(
+      `/chat/messages/${messageId}/feedback`,
+      { sentiment, comment },
+    )
+    .then((r) => r.data)
 }
 
 export function listSessions() {
@@ -48,6 +73,7 @@ export async function chatStream(
   history: Array<{ role: string; content: string }> = [],
   cb: StreamCallbacks = {},
   sessionId?: number | null,
+  knowledgeBase?: string | null,
 ) {
   const resp = await fetch('/api/v1/chat/stream', {
     method: 'POST',
@@ -55,7 +81,12 @@ export async function chatStream(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
     },
-    body: JSON.stringify({ question, history, session_id: sessionId }),
+    body: JSON.stringify({
+      question,
+      history,
+      session_id: sessionId,
+      knowledge_base: knowledgeBase,
+    }),
   })
   if (!resp.ok || !resp.body) {
     cb.onError?.(`请求失败（HTTP ${resp.status}）`)
@@ -93,7 +124,13 @@ export async function chatStream(
         answer += payload
         cb.onDelta?.(answer)
       } else if (event === 'done') {
-        cb.onDone?.(payload.answer, payload.citations, payload.no_answer, payload.session_id)
+        cb.onDone?.(
+          payload.answer,
+          payload.citations,
+          payload.no_answer,
+          payload.session_id,
+          payload.message_id,
+        )
       } else if (event === 'error') {
         cb.onError?.(payload.detail)
       }

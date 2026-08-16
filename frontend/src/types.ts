@@ -14,7 +14,50 @@ export interface DocumentInfo {
   failure_reason?: string | null
   version: number
   department: string
+  knowledge_base?: string | null
   chunk_count: number
+  created_at: string
+}
+
+export interface KnowledgeBaseInfo {
+  id: number
+  name: string
+  department: string
+  description?: string | null
+  is_active: boolean
+  document_count: number
+  created_at: string
+}
+
+export interface FeedbackInfo {
+  id: number
+  user_id: number
+  username: string
+  department: string
+  message_id: number
+  sentiment: 'like' | 'dislike'
+  comment?: string | null
+  question?: string | null
+  answer?: string | null
+  created_at: string
+}
+
+export interface TraceInfo {
+  id: number
+  request_id?: string | null
+  user_id?: number | null
+  department?: string | null
+  knowledge_base?: string | null
+  question: string
+  rewritten_query?: string | null
+  cache_hit: boolean
+  retrieved_count: number
+  no_answer: boolean
+  llm_input_tokens?: number | null
+  llm_output_tokens?: number | null
+  latency_ms: number
+  stage_timing?: string | null
+  answer_preview?: string | null
   created_at: string
 }
 
@@ -31,6 +74,7 @@ export interface ChatResponse {
   citations: Citation[]
   no_answer: boolean
   session_id?: number | null
+  message_id?: number | null
 }
 
 export interface ChatMessageInfo {
@@ -45,6 +89,7 @@ export interface ChatMessageInfo {
 export interface ChatSessionInfo {
   id: number
   title: string
+  knowledge_base?: string | null
   created_at: string
   updated_at: string
 }

@@ -8,7 +8,9 @@ os.environ["VECTOR_URI"] = "data/test_milvus.db"
 os.environ["INGESTION_MODE"] = "inline"
 os.environ["EMBEDDING_BACKEND"] = "mock"
 os.environ["LLM_BACKEND"] = "mock"
+os.environ["RERANKER_BACKEND"] = "lexical"  # 测试固定离线词法重排，避免 .env 的 api 烧真实 rerank
 os.environ["ANSWER_CACHE_BACKEND"] = "memory"  # 测试不依赖 Redis，用内存 KV
+os.environ["OCR_BACKEND"] = "none"  # 测试不跑真实 OCR，扫描页行为用 monkeypatch 验证
 
 import pytest
 from httpx import ASGITransport, AsyncClient

@@ -9,6 +9,7 @@ from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.chunk import Chunk
+    from app.models.knowledge_base import KnowledgeBase
 
 
 class DocStatus(str, enum.Enum):
@@ -35,9 +36,15 @@ class Document(Base, TimestampMixin):
     failure_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)  # W10 失败原因（前端可看、可判断是否重试）
     version: Mapped[int] = mapped_column(Integer, default=1)
     department: Mapped[str] = mapped_column(String(64), index=True)  # 文档归属部门（权限过滤键）
+    knowledge_base_id: Mapped[int | None] = mapped_column(
+        ForeignKey("knowledge_bases.id"), nullable=True, index=True
+    )  # 多知识库：文档归属的知识库（null 兼容老数据，业务上由默认库兜底）
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
+    )
+    knowledge_base: Mapped["KnowledgeBase | None"] = relationship(
+        back_populates="documents"
     )

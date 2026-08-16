@@ -36,6 +36,8 @@ os.environ.setdefault("INGESTION_MODE", "inline")
 os.environ.setdefault("EMBEDDING_BACKEND", "mock")
 os.environ.setdefault("SEARCH_MODE", "hybrid")
 os.environ.setdefault("DEBUG", "false")  # 评测不需要 SQL 回显
+# 评测库保持脏文档原样（TEXT_CLEANING=none），验证检索抗噪；生产由 compose 强制 basic
+os.environ.setdefault("TEXT_CLEANING", "none")
 # 评测默认 mock（占位数字），绝不默认烧 API；只有 ablation.py 显式传 LLM_BACKEND=api 才用真实模型。
 # 注意：必须放在 import app.* 之前，且用普通赋值兜底（.env 里可能配了 api）。
 if not os.getenv("LLM_BACKEND"):
@@ -50,6 +52,7 @@ from app.core.config import get_settings  # noqa: E402
 from app.db.session import AsyncSessionLocal, engine  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.document import DocStatus, Document  # noqa: E402
+from app.models.knowledge_base import KnowledgeBase  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.services import rerank_service, retrieval_service  # noqa: E402
 from app.services.evaluator import LLMJudge, evaluate_case  # noqa: E402
@@ -62,6 +65,8 @@ settings = get_settings()
 
 DEMO_DOCS = sorted(Path("demo_docs").glob("*.md"))
 GOLDEN_PATH = Path("eval_data/golden_set.json")
+# 评测用单一知识库（多知识库后 hr 部门就这一个库，检索语义与改动前一致，基线不漂移）
+EVAL_KB = "默认知识库"
 
 
 def load_golden() -> dict:
@@ -71,7 +76,8 @@ def load_golden() -> dict:
 def make_label() -> str:
     mode = os.getenv("SEARCH_MODE", "hybrid")
     rerank = os.getenv("RERANKER_BACKEND", "lexical")
-    cs = os.getenv("CHUNK_SIZE", str(settings.CHUNK_SIZE))
+    # 评测文档全是 md，走标题感知分块（CHUNK_SIZE_MD + 句子对齐），标签跟随真实参数
+    cs = os.getenv("CHUNK_SIZE", str(settings.CHUNK_SIZE_MD))
     llm = os.getenv("LLM_BACKEND", "mock")
     if mode == "vector":
         return f"纯向量-无重排-chunk{cs}-{llm}"
@@ -96,6 +102,9 @@ async def ingest_demo_docs() -> None:
         user = User(username="eval_admin", hashed_password="x", department="hr")
         db.add(user)
         await db.flush()
+        kb = KnowledgeBase(name=EVAL_KB, department="hr", description="评测库")
+        db.add(kb)
+        await db.flush()
 
         for path in DEMO_DOCS:
             raw = path.read_bytes()
@@ -106,6 +115,7 @@ async def ingest_demo_docs() -> None:
                 content_hash=compute_content_hash(raw),
                 status=DocStatus.pending,
                 department="hr",
+                knowledge_base_id=kb.id,
                 owner_id=user.id,
             )
             db.add(doc)
@@ -135,14 +145,14 @@ async def retrieve(question: str) -> list[dict]:
         # 消融组"纯向量"：直接取向量检索前 N，不重排
         async with AsyncSessionLocal() as db:
             chunks = await retrieval_service.vector_search(
-                db, question, "hr", top_k=settings.RERANK_TOP_N
+                db, question, "hr", EVAL_KB, top_k=settings.RERANK_TOP_N
             )
         return await _fill_titles(chunks)
 
     # 生产链路：召回(宽) -> 重排(精) -> 取前 N
     async with AsyncSessionLocal() as db:
         chunks = await retrieval_service.hybrid_search(
-            db, question, "hr", top_k=settings.RERANK_RECALL_K
+            db, question, "hr", EVAL_KB, top_k=settings.RERANK_RECALL_K
         )
     reranker = rerank_service.get_reranker_provider()
     if reranker:
@@ -242,8 +252,8 @@ async def main() -> None:
         "config": {
             "SEARCH_MODE": os.getenv("SEARCH_MODE", "hybrid"),
             "RERANKER_BACKEND": os.getenv("RERANKER_BACKEND", "lexical"),
-            "CHUNK_SIZE": os.getenv("CHUNK_SIZE", str(settings.CHUNK_SIZE)),
-            "CHUNK_OVERLAP": os.getenv("CHUNK_OVERLAP", str(settings.CHUNK_OVERLAP)),
+            "CHUNK_SIZE_MD": os.getenv("CHUNK_SIZE", str(settings.CHUNK_SIZE_MD)),
+            "CHUNK_OVERLAP_MD": os.getenv("CHUNK_OVERLAP", str(settings.CHUNK_SIZE_MD // 5)),
             "LLM_BACKEND": os.getenv("LLM_BACKEND", "mock"),
             "department": golden["meta"]["department"],
         },
